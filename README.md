@@ -222,6 +222,16 @@ A teammate needs exactly two files, side by side in any folder of their choice:
    **It is not in this repository and must never be.** Send it over Slack or
    1Password, not over email and not in a public link.
 
+**Send it as a .zip.** Right-click `autostart.command` in Finder and choose
+Compress, then send the zip. A `.command` file downloaded straight from GitHub or
+pasted into a chat loses its executable permission, and double-clicking it then
+opens a text editor instead of running. Zipping on a Mac preserves it.
+
+**Warn them about the first double-click.** macOS quarantines anything that
+arrived from the internet, so the first attempt shows "cannot be opened because
+it is from an unidentified developer". The way through is right-click → Open →
+Open. It happens once, per person.
+
 They double-click `autostart.command`. It notices there is no code next to it,
 downloads the newest published version from this repository, installs it, and
 sets it to start with their Mac. They never install Python by hand, never clone

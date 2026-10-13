@@ -43,7 +43,7 @@ DOMAIN="gui/$(id -u)"
 # Where the published code lives. Change REPO if the repository moves, and
 # BRANCH to a tag (e.g. "v1.0") once more than a couple of people use this:
 # with a tag, pushing a broken commit does not reach anybody until you move it.
-REPO="REEMPLAZA-CON-TU-USUARIO/calsync"
+REPO="davidmercado-ruca/CalSync"
 BRANCH="main"
 TARBALL="https://codeload.github.com/$REPO/tar.gz/refs/heads/$BRANCH"
 
