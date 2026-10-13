@@ -1,0 +1,10 @@
+credentials.json
+client_secret*.json
+.venv/
+__pycache__/
+*.pyc
+*.db
+.DS_Store
+_to_delete/
+*.tgz
+*.tar.gz
