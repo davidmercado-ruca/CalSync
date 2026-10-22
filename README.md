@@ -187,7 +187,7 @@ share.
 | `calsync/habits.py` | The protected-block engine: where each block fits |
 | `calsync/app.py` | The dashboard and the clock |
 | `calsync/purge.py` | Cleanup from the terminal, bypassing the app |
-| `tests/` | 107 tests that run without touching Google |
+| `tests/` | 109 tests that run without touching Google |
 
 Start reading at `engine.py`. It is written to be read in order: how a busy block
 is built, then how the decision is made, then how it is applied.

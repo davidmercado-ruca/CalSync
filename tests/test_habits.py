@@ -987,6 +987,66 @@ def test_los_bloques_de_ayer_sobreviven_a_la_medianoche(conn, cuentas, monkeypat
     assert slot(slots, lunch, ayer) is not None
 
 
+def test_un_bloque_en_curso_no_se_borra_aunque_la_ventana_se_cierre(conn, cuentas, monkeypatch):
+    """El bug del almuerzo: se borraba a media comida, todos los días.
+
+    Ventana 11:30–15:00, mínimo 60 min. A las 14:00 ya no cabe otro almuerzo
+    completo dentro de la ventana, así que la guarda de «ya no queda día» lo
+    descartaba — y en este motor no volver a decidir algo ES borrarlo. Pero el
+    almuerzo de ese día iba de 13:00 a 14:30 y todavía estaba ocurriendo.
+
+    Ningún otro bloque lo sufría: todos terminan antes de que su propia ventana
+    se quede más corta que su mínimo. Por eso solo se quejaba del Lunch.
+    """
+    solo(conn, "Lunch")
+    lunch = habito(conn, "Lunch")["id"]
+    hoy_real = habits.hoy()
+
+    # Mediodía: el almuerzo se coloca normalmente a la 1.
+    monkeypatch.setattr(habits, "ahora", lambda: habits.local(hoy_real, time(12, 0)))
+    slots, _ = habits.decidir_slots(conn)
+    habits.guardar_slots(conn, slots)
+    colocado = slot(slots, lunch, hoy_real)
+    assert datetime.fromisoformat(colocado["start_local"]).strftime("%H:%M") == "13:00"
+    assert colocado["minutes"] == 90, "13:00–14:30"
+
+    # 14:01 — el bloque está corriendo, pero en la ventana ya no caben 60 min.
+    monkeypatch.setattr(habits, "ahora", lambda: habits.local(hoy_real, time(14, 1)))
+    slots, _ = habits.decidir_slots(conn)
+    vivo = slot(slots, lunch, hoy_real)
+    assert vivo is not None, "se borró el almuerzo mientras David estaba almorzando"
+    assert datetime.fromisoformat(vivo["start_local"]).strftime("%H:%M") == "13:00"
+
+    # Y el plan no debe pedir borrarlo de ningún calendario.
+    ops, _ = habits.compute_plan(conn)
+    assert not [o for o in ops
+                if o["action"] == "delete" and o.get("day") == hoy_real.isoformat()]
+
+
+def test_con_cleanup_past_tampoco_se_borra_a_media_comida(conn, cuentas, monkeypatch):
+    """«Clear when done» significa terminado, no a mitad. Con la opción
+    encendida el bloque sigue vivo mientras corre, y se va después."""
+    solo(conn, "Lunch")
+    lunch = habito(conn, "Lunch")["id"]
+    conn.execute("UPDATE habits SET cleanup_past = 1 WHERE id = ?", (lunch,))
+    conn.commit()
+    hoy_real = habits.hoy()
+
+    monkeypatch.setattr(habits, "ahora", lambda: habits.local(hoy_real, time(12, 0)))
+    slots, _ = habits.decidir_slots(conn)
+    habits.guardar_slots(conn, slots)
+
+    monkeypatch.setattr(habits, "ahora", lambda: habits.local(hoy_real, time(14, 1)))
+    slots, _ = habits.decidir_slots(conn)
+    assert slot(slots, lunch, hoy_real) is not None, "todavía está almorzando"
+    habits.guardar_slots(conn, slots)
+
+    # 14:31: ya terminó, y este hábito sí pidió limpiarse solo.
+    monkeypatch.setattr(habits, "ahora", lambda: habits.local(hoy_real, time(14, 31)))
+    slots, _ = habits.decidir_slots(conn)
+    assert slot(slots, lunch, hoy_real) is None, "con cleanup_past debe irse al terminar"
+
+
 def test_no_se_emite_ningun_borrado_para_bloques_pasados(conn, cuentas):
     """La prueba que habría atrapado el bug: el plan no debe querer borrar
     nada de lo que ya ocurrió."""

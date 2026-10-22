@@ -393,27 +393,39 @@ def adoptar_cambios_manuales(conn):
 
 
 def slots_ya_pasados(conn):
-    """Los bloques que ya ocurrieron se dejan exactamente donde están.
+    """Un bloque que YA EMPEZÓ se deja exactamente donde está.
 
-    Un bloque que ya pasó no se puede reagendar, y borrarlo te quita el registro
-    de lo que hiciste. Antes desaparecían, y por dos vías: `dias_del_horizonte`
+    Empezó, no terminó. La diferencia costó el bug del almuerzo. Borrarlo te
+    quita el registro de lo que hiciste, y además no tiene sentido reagendar
+    algo que está ocurriendo ahora mismo.
+
+    Antes desaparecían por dos vías, y la segunda seguía viva: `dias_del_horizonte`
     arranca hoy, así que los días anteriores no se volvían a decidir; y las
-    guardas de «el día ya se acabó» descartaban el bloque de hoy en cuanto su
-    ventana se cerraba. Todo lo que no se vuelve a decidir se borra, así que el
-    almuerzo se esfumaba a las 15:00 y la lectura a las 09:00.
+    guardas de «ya no queda ventana» descartaban el bloque de hoy. Protegiendo
+    solo lo terminado quedaba un hueco: entre que empieza un bloque y que
+    termina, la ventana puede cerrarse debajo de él.
 
-    Con `cleanup_past` encendido, el hábito sí deja que sus bloques pasados se
-    borren: es la opción para quien quiera el calendario limpio.
+    Al almuerzo le pasaba todos los días. Ventana 11:30–15:00, mínimo 60 min:
+    a las 14:00 ya no cabe otro almuerzo completo, así que la guarda lo
+    descartaba — pero el almuerzo de ese día iba de 13:00 a 14:30 y todavía
+    estaba corriendo. Se borraba a media comida. Ningún otro bloque lo sufría
+    porque todos terminan antes de que su propia ventana se quede corta.
+
+    Con `cleanup_past` encendido el hábito sí deja que sus bloques se borren,
+    pero solo una vez TERMINADOS: «clear when done» no es «clear a mitad».
     """
     por_id = {h["id"]: h for h in db.habits(conn)}
     quietos = {}
     for fila in conn.execute("SELECT * FROM habit_slots"):
         habito = por_id.get(fila["habit_id"])
-        if habito is None or habito["cleanup_past"]:
+        if habito is None:
             continue
         inicio = datetime.fromisoformat(fila["start_local"])
-        if inicio + timedelta(minutes=fila["minutes"]) > ahora():
-            continue          # todavía no pasa: lo decide el bucle normal
+        fin = inicio + timedelta(minutes=fila["minutes"])
+        if inicio > ahora():
+            continue          # todavía no empieza: lo decide el bucle normal
+        if habito["cleanup_past"] and fin <= ahora():
+            continue          # terminó, y este hábito pidió que se limpie solo
         quietos[(fila["habit_id"], fila["day"])] = {
             "habit_id": fila["habit_id"],
             "day": fila["day"],
