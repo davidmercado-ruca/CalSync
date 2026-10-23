@@ -60,13 +60,17 @@ TZ = _zona_local()
 
 # Ventana de tiempo que se mantiene sincronizada.
 #
-# WINDOW_FUTURE_DAYS está en 14 para la primera activación: reduce el estreno de
-# ~774 eventos a ~200, que se puede revisar de verdad en los calendarios reales.
-# Cuando estés conforme, súbelo a 60 y guarda: los espejos que faltan se crean
-# solos en el siguiente ciclo. Bajarlo de nuevo también funciona — los espejos
-# que quedan fuera de la ventana se borran, no se abandonan.
+# Va a la par de HABITS_HORIZON_DAYS a propósito: el calendario del dashboard
+# muestra bloques y reuniones en la misma rejilla, y si una de las dos ventanas
+# fuera más corta, al navegar a la cuarta semana verías tus bloques flotando
+# sin las reuniones que los empujaron ahí.
+#
+# Subirlo o bajarlo funciona en ambos sentidos: lo que falta se crea en el
+# siguiente ciclo, y lo que sobra se borra en vez de quedar abandonado. Ojo con
+# el estreno: el ciclo que aplica un aumento grande crea cientos de eventos de
+# una sentada y se va despacio a propósito para no chocar con Google.
 WINDOW_PAST_DAYS = 7
-WINDOW_FUTURE_DAYS = 14
+WINDOW_FUTURE_DAYS = 30
 
 # Cada cuántos minutos se revisan cambios.
 POLL_MINUTES = 3
@@ -82,13 +86,18 @@ FULL_RESYNC_HOURS = 12
 # Más corto que la ventana de espejos a propósito: colocar almuerzos a 60 días
 # significaría cientos de eventos que se van a mover igual cuando la agenda
 # se llene. Dos semanas es lo que se puede planear con sentido.
-HABITS_HORIZON_DAYS = 14
+HABITS_HORIZON_DAYS = 30
 
 # Cada cuántos minutos se prueba una posición al buscar un hueco.
 PLACEMENT_STEP_MINUTES = 15
 
 # En cuánto se va recortando un bloque flexible cuando no cabe completo.
 SHRINK_STEP_MINUTES = 15
+
+# Alto de una hora en la rejilla semanal del dashboard, en píxeles. El cálculo
+# de posiciones y la plantilla leen el mismo número: si discrepan, los bloques
+# quedan corridos respecto a las líneas de la hora.
+PX_HORA = 44
 
 # --- Marca de los eventos espejo ---------------------------------------------
 # Esta es la pieza de seguridad más importante del proyecto.
@@ -128,6 +137,9 @@ COLORES = [
     ("10", "Basil",        "#0B8043"),
     ("11", "Tomato",       "#D50000"),
 ]
+
+COLOR_HEX = {cid: hexa for cid, _nombre, hexa in COLORES}
+
 
 # --- Dashboard ---------------------------------------------------------------
 

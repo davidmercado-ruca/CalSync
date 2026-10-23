@@ -98,7 +98,7 @@ calendar, and the same ones as "Work" in your personal one.
 but what everyone else sees in the target calendar. Off, your colleagues see a
 titleless "Busy" block even when you see full detail. On, they see it like any
 other event of yours — right when the other calendar belongs to a client or
-project of the same organisation.
+project of the same organization.
 
 Guests are never copied as real guests, only as text in the description. Copying
 them would make Google send a fresh invitation from the other account and
@@ -147,7 +147,7 @@ Three rules that are not obvious:
 - **Blocks that already happened are never touched.** They are the record of what
   you did. Turn on *clear when done* per block if you would rather they vanish.
 
-Planned 14 days ahead. Further out is pointless — it will move anyway once the
+Planned 30 days ahead. Further out is pointless — it will move anyway once the
 calendar fills.
 
 ### The original and the copies
@@ -187,7 +187,7 @@ share.
 | `calsync/habits.py` | The protected-block engine: where each block fits |
 | `calsync/app.py` | The dashboard and the clock |
 | `calsync/purge.py` | Cleanup from the terminal, bypassing the app |
-| `tests/` | 109 tests that run without touching Google |
+| `tests/` | 136 tests that run without touching Google — engine, blocks and dashboard |
 
 Start reading at `engine.py`. It is written to be read in order: how a busy block
 is built, then how the decision is made, then how it is applied.

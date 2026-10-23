@@ -374,7 +374,15 @@ def adoptar_cambios_manuales(conn):
         real_ini = datetime.fromisoformat(fila["start_utc"]).astimezone(config.TZ)
         real_fin = datetime.fromisoformat(fila["end_utc"]).astimezone(config.TZ)
         minutos = int((real_fin - real_ini).total_seconds() // 60)
-        if real_ini.isoformat() == fila["wrote_start"] and minutos == fila["wrote_minutes"]:
+
+        # Se comparan INSTANTES, no el texto de la fecha. «2026-11-05T13:00-05:00»
+        # y «2026-11-05T18:00+00:00» son el mismo momento escrito de dos formas,
+        # y comparándolos como cadenas son distintos. Eso importa el día que
+        # cambie la zona horaria del computador —viajas, macOS te pregunta si la
+        # actualizas y dices que sí— porque entonces CADA bloque se leería como
+        # movido a mano y CalSync reescribiría la agenda entera.
+        escrito = datetime.fromisoformat(fila["wrote_start"])
+        if real_ini == escrito and minutos == fila["wrote_minutes"]:
             continue                      # sigue donde lo dejamos: nadie lo movió
 
         # `by_hand` marca que esta hora la eligió David, no el motor. Es lo que
@@ -719,33 +727,178 @@ def compute_plan(conn):
     return ops, conflictos
 
 
-def agenda_semana(conn, dias=7):
-    """Dónde quedó cada bloque en los próximos días, para verlo de un vistazo."""
-    limite = (hoy() + timedelta(days=dias)).isoformat()
-    por_dia = {}
-    filas = conn.execute(
-        "SELECT s.*, h.name FROM habit_slots s JOIN habits h ON h.id = s.habit_id "
-        "ORDER BY s.day, s.start_local"
-    )
-    for fila in filas:
-        if fila["day"] > limite:
-            continue
+# --- La semana que se dibuja en el dashboard --------------------------------
+# Antes esto era una lista de «día: bloque, bloque». Una lista no deja ver lo
+# único que de verdad importa: dónde quedan los huecos. La rejilla sí.
+
+MESES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+# Lo mínimo y lo máximo que puede medir la caja del calendario, en píxeles.
+# El mínimo evita que una semana floja quede como una rebanada; el máximo evita
+# que una semana larga empuje todo lo demás fuera de la pantalla.
+ALTO_MINIMO, ALTO_MAXIMO = 320, 620
+
+
+def reloj12(minutos: int) -> str:
+    hora = minutos // 60
+    return f"{hora % 12 or 12}{'am' if hora < 12 else 'pm'}"
+
+
+def carriles(piezas):
+    """Reparte en carriles lo que se solapa, igual que Google Calendar.
+
+    Las piezas que se pisan entre sí forman un grupo, y dentro del grupo cada
+    una se mete en el primer carril que ya esté libre. El ancho de todas las
+    piezas del grupo lo fija el carril más poblado, para que las columnas
+    queden parejas y no escalonadas.
+    """
+    piezas = sorted(piezas, key=lambda p: (p["ini"], -p["fin"]))
+    grupos, actual, tope = [], [], None
+    for pieza in piezas:
+        if tope is not None and pieza["ini"] >= tope:
+            grupos.append(actual)
+            actual = []
+        actual.append(pieza)
+        tope = pieza["fin"] if tope is None else max(tope, pieza["fin"])
+    if actual:
+        grupos.append(actual)
+
+    for grupo in grupos:
+        libre_desde = []
+        for pieza in grupo:
+            carril = next(
+                (i for i, fin in enumerate(libre_desde) if fin <= pieza["ini"]), None
+            )
+            if carril is None:
+                carril = len(libre_desde)
+                libre_desde.append(0)
+            libre_desde[carril] = pieza["fin"]
+            pieza["carril"] = carril
+        for pieza in grupo:
+            pieza["total"] = len(libre_desde)
+    return piezas
+
+
+def _minutos_del_dia(momento: datetime, dia: date) -> int:
+    """Minutos desde la medianoche de ESE día, recortado al propio día.
+
+    Una reunión puede empezar la víspera o terminar al día siguiente. Sin
+    recortar, la pieza se dibujaría fuera de la columna.
+    """
+    delta = momento - local(dia, time.min)
+    return max(0, min(24 * 60, int(delta.total_seconds() // 60)))
+
+
+def piezas_del_dia(conn, dia: date, con_reuniones: bool = True):
+    """Todo lo que ocupa espacio en la columna de ese día."""
+    piezas = []
+    for fila in conn.execute(
+        "SELECT s.start_local, s.minutes, h.name, h.color_id "
+        "FROM habit_slots s JOIN habits h ON h.id = s.habit_id WHERE s.day = ?",
+        (dia.isoformat(),),
+    ):
         inicio = datetime.fromisoformat(fila["start_local"])
         fin = inicio + timedelta(minutes=fila["minutes"])
-        por_dia.setdefault(fila["day"], []).append({
-            "name": fila["name"],
-            "desde": inicio.strftime("%H:%M"),
-            "hasta": fin.strftime("%H:%M"),
-            "minutos": fila["minutes"],
+        piezas.append({
+            "ini": _minutos_del_dia(inicio, dia),
+            "fin": _minutos_del_dia(fin, dia),
+            "titulo": (fila["name"] or "").strip(),
+            "color": config.COLOR_HEX.get(fila["color_id"] or "", ""),
+            "cuenta": "",
+            "tipo": "bloque",
         })
-    return [
-        {
+    if con_reuniones:
+        for evt in eventos_reales(conn, dia):
+            piezas.append({
+                "ini": _minutos_del_dia(evt["inicio"], dia),
+                "fin": _minutos_del_dia(evt["fin"], dia),
+                "titulo": evt["titulo"],
+                "color": "",
+                "cuenta": evt["cuenta"],
+                "tipo": "reunion",
+            })
+    return [p for p in piezas if p["fin"] > p["ini"]]
+
+
+def rotulo_semana(lunes: date, domingo: date) -> str:
+    if lunes.month == domingo.month:
+        return f"{MESES[lunes.month - 1]} {lunes.day} – {domingo.day}, {domingo.year}"
+    return (f"{MESES[lunes.month - 1]} {lunes.day} – "
+            f"{MESES[domingo.month - 1]} {domingo.day}, {domingo.year}")
+
+
+def vista_semana(conn, offset: int = 0, con_reuniones: bool = True):
+    """La semana lista para dibujar: columnas, posiciones y dónde abrir.
+
+    La rejilla siempre cubre el día completo, de 00:00 a 24:00, para que se
+    pueda subir o bajar a cualquier hora. Lo que se ajusta a cada semana es
+    DÓNDE abre la vista y qué tan alta es la caja: encuadra lo que esa semana
+    tiene de verdad, con media hora de aire, sin recortar nada.
+    """
+    hoy_ = hoy()
+    lunes = hoy_ - timedelta(days=hoy_.weekday()) + timedelta(weeks=offset)
+    dias = [lunes + timedelta(days=n) for n in range(7)]
+
+    columnas, mas_temprano, mas_tarde = [], None, None
+    for dia in dias:
+        piezas = carriles(piezas_del_dia(conn, dia, con_reuniones))
+        for pieza in piezas:
+            mas_temprano = (pieza["ini"] if mas_temprano is None
+                            else min(mas_temprano, pieza["ini"]))
+            mas_tarde = (pieza["fin"] if mas_tarde is None
+                         else max(mas_tarde, pieza["fin"]))
+            pieza["top"] = pieza["ini"] * config.PX_HORA // 60
+            pieza["alto"] = max(
+                (pieza["fin"] - pieza["ini"]) * config.PX_HORA // 60 - 2, 15)
+            pieza["ancho"] = round(100 / pieza["total"], 4)
+            pieza["izq"] = round(pieza["carril"] * 100 / pieza["total"], 4)
+            pieza["rango"] = f'{reloj12(pieza["ini"])} – {reloj12(pieza["fin"])}'
+            pieza["corto"] = (pieza["fin"] - pieza["ini"]) <= 30
+        columnas.append({
             "dia": dia,
-            "etiqueta": f"{DIAS_CORTOS[date.fromisoformat(dia).weekday()]} {dia[8:10]}/{dia[5:7]}",
-            "bloques": bloques,
-        }
-        for dia, bloques in sorted(por_dia.items())
-    ]
+            "nombre": DIAS_CORTOS[dia.weekday()].upper(),
+            "numero": dia.day,
+            "es_hoy": dia == hoy_,
+            "piezas": piezas,
+        })
+
+    vacia = mas_temprano is None
+    if vacia:
+        foco, alto = 8 * 60, 420
+    else:
+        foco = max(0, ((mas_temprano - 30) // 60) * 60)
+        tope = min(24 * 60, ((mas_tarde + 30 + 59) // 60) * 60)
+        alto = min(max((tope - foco) * config.PX_HORA // 60, ALTO_MINIMO), ALTO_MAXIMO)
+
+    ahora_px = None
+    if any(c["es_hoy"] for c in columnas):
+        instante = ahora()
+        ahora_px = (instante.hour * 60 + instante.minute) * config.PX_HORA // 60
+
+    usados = {}
+    for columna in columnas:
+        for pieza in columna["piezas"]:
+            if pieza["tipo"] == "bloque":
+                usados[pieza["titulo"]] = pieza["color"]
+
+    return {
+        "offset": offset,
+        "con_reuniones": con_reuniones,
+        "etiqueta": rotulo_semana(lunes, dias[-1]),
+        "columnas": columnas,
+        "horas": [(h, reloj12(h * 60), h * config.PX_HORA) for h in range(24)],
+        "alto_dia": 24 * config.PX_HORA,
+        "vacia": vacia,
+        "alto": alto,
+        "foco_px": foco * config.PX_HORA // 60,
+        "foco": reloj12(foco),
+        "ahora_px": ahora_px,
+        "leyenda": sorted(usados.items()),
+        # Más allá del horizonte no hay nada decidido todavía, y conviene
+        # decirlo en vez de mostrar una semana vacía que parece un error.
+        "mas_alla": lunes > hoy_ + timedelta(days=config.HABITS_HORIZON_DAYS),
+    }
 
 
 def limpiar_todo(conn):

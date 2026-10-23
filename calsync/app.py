@@ -71,8 +71,14 @@ app = FastAPI(title="CalSync", lifespan=lifespan)
 
 # --- Interfaz ----------------------------------------------------------------
 
+# Cada formulario vuelve a la sección desde la que se envió. Sin esto, guardar
+# un bloque te devolvía al principio del dashboard y tocaba volver a navegar.
+def volver(seccion: str = "dashboard"):
+    return RedirectResponse(f"/#{seccion}", status_code=303)
+
+
 @app.get("/")
-def dashboard(request: Request):
+def dashboard(request: Request, week: int = 0, meetings: int = 1):
     conn = db.connect()
     try:
         settings = db.all_settings(conn)
@@ -102,7 +108,11 @@ def dashboard(request: Request):
                 "habits": db.habits(conn),
                 "papelera": settings.get("papelera"),
                 "conflicts": conflictos,
-                "agenda": habits.agenda_semana(conn),
+                # Las flechas de semana llegan como ?week=; se acotan para que
+                # una URL escrita a mano no pida el año 3000.
+                "vista": habits.vista_semana(
+                    conn, offset=max(-52, min(52, week)), con_reuniones=bool(meetings)
+                ),
                 "log": db.recent_log(conn, 60),
                 "credentials_ok": config.CREDENTIALS_FILE.exists(),
                 "poll": config.POLL_MINUTES,
@@ -111,6 +121,8 @@ def dashboard(request: Request):
                 "opciones_duracion": habits.opciones_duracion,
                 "opciones_hora": habits.opciones_hora,
                 "colores": config.COLORES,
+                "colores_hex": config.COLOR_HEX,
+                "px_hora": config.PX_HORA,
                 "a_local": db.a_local,
                 "acciones": config.LOG_LABELS,
                 # El desplegable de cada bloque muestra la cuenta que le toca
@@ -133,7 +145,7 @@ def conectar(label: str = Form("")):
         db.log(conn, "error_conexion", str(e), "error")
     finally:
         conn.close()
-    return RedirectResponse("/", status_code=303)
+    return volver("accounts")
 
 
 @app.post("/account/{account_id}/disconnect")
@@ -147,16 +159,16 @@ def desconectar(account_id: int):
         db.log(conn, "cuenta_desconectada", acct["email"] if acct else account_id, "warn")
     finally:
         conn.close()
-    return RedirectResponse("/", status_code=303)
+    return volver("accounts")
 
 
-@app.post("/settings")
-async def ajustes(request: Request):
+@app.post("/settings/general")
+async def ajustes_generales(request: Request):
+    """Modo y qué eventos NO bloquean tiempo."""
     form = await request.form()
     conn = db.connect()
     try:
         settings = db.all_settings(conn)
-
         db.set_setting(conn, "simulation", form.get("simulation") == "on")
 
         reglas = dict(settings["rules"])
@@ -169,7 +181,18 @@ async def ajustes(request: Request):
             k.strip() for k in (form.get("skip_keywords") or "").split(",") if k.strip()
         ]
         db.set_setting(conn, "rules", reglas)
+        db.log(conn, "ajustes_guardados", "general")
+    finally:
+        conn.close()
+    return volver("general")
 
+
+@app.post("/settings/sharing")
+async def ajustes_compartir(request: Request):
+    """Qué revela cada calendario a los otros, y qué leen los demás."""
+    form = await request.form()
+    conn = db.connect()
+    try:
         db.set_setting(conn, "busy_word", (form.get("busy_word") or "Busy").strip() or "Busy")
         db.set_setting(conn, "mirror_color", (form.get("mirror_color") or "").strip())
         db.set_setting(conn, "mirror_note", (form.get("mirror_note") or "").strip())
@@ -189,60 +212,67 @@ async def ajustes(request: Request):
                 }
         db.set_setting(conn, "pairs", pares)
         db.set_setting(conn, "detail_pairs", detalle)
-        db.log(conn, "ajustes_guardados", "")
+        db.log(conn, "ajustes_guardados", "sharing")
     finally:
         conn.close()
-    return RedirectResponse("/", status_code=303)
+    return volver("sharing")
 
 
-@app.post("/blocks")
-async def guardar_habitos(request: Request):
+@app.post("/block/{habit_id}")
+async def guardar_habito(habit_id: int, request: Request):
+    """Guarda UN bloque. Los demás no se tocan.
+
+    Antes se guardaban los seis de una vez y se borraban todas las posiciones
+    ya decididas, así que cambiarle la ventana al almuerzo también reubicaba el
+    ejercicio sin que nadie lo pidiera. Ahora solo se reabre la decisión del
+    bloque que cambió.
+    """
     form = await request.form()
     conn = db.connect()
     try:
-        for habito in db.habits(conn):
-            hid = habito["id"]
-            dias = ",".join(str(n) for n in range(7) if form.get(f"h_{hid}_day_{n}") == "on")
-            tipo = form.get(f"h_{hid}_kind") or "flexible"
-            ideal = max(15, int(form.get(f"h_{hid}_ideal") or habito["ideal_minutes"]))
-            # Un bloque de hora fija no se recorta: su mínimo ES su duración.
-            if tipo == "fixed":
-                minimo = ideal
-            else:
-                minimo = max(15, int(form.get(f"h_{hid}_min") or ideal))
-            conn.execute(
-                "UPDATE habits SET name = ?, enabled = ?, kind = ?, ideal_minutes = ?, "
-                "min_minutes = ?, window_start = ?, window_end = ?, preferred_start = ?, "
-                "days = ?, per_week = ?, share = ?, color_id = ?, home_account_id = ?, "
-                "cleanup_past = ? WHERE id = ?",
-                (
-                    (form.get(f"h_{hid}_name") or habito["name"]).strip(),
-                    1 if form.get(f"h_{hid}_enabled") == "on" else 0,
-                    tipo,
-                    ideal,
-                    min(minimo, ideal),   # el mínimo nunca puede pasar del ideal
-                    form.get(f"h_{hid}_w0") or habito["window_start"],
-                    form.get(f"h_{hid}_w1") or habito["window_end"],
-                    (form.get(f"h_{hid}_pref") or "").strip() or None,
-                    dias or habito["days"],
-                    int(form.get(f"h_{hid}_per_week") or 0),
-                    1 if form.get(f"h_{hid}_share") == "on" else 0,
-                    (form.get(f"h_{hid}_color") or "").strip(),
-                    int(form.get(f"h_{hid}_home"))
-                    if (form.get(f"h_{hid}_home") or "").isdigit() else None,
-                    1 if form.get(f"h_{hid}_cleanup") == "on" else 0,
-                    hid,
-                ),
-            )
-        # Cambió alguna regla: se vuelven a decidir todas las posiciones, y se
-        # olvidan los días que habías borrado a mano (la regla nueva manda).
-        conn.execute("DELETE FROM habit_skips")
-        conn.execute("DELETE FROM habit_slots")
+        habito = conn.execute(
+            "SELECT * FROM habits WHERE id = ?", (habit_id,)).fetchone()
+        if habito is None:
+            return volver("blocks")
+
+        dias = ",".join(str(n) for n in range(7) if form.get(f"day_{n}") == "on")
+        tipo = form.get("kind") or "flexible"
+        ideal = max(15, int(form.get("ideal") or habito["ideal_minutes"]))
+        # Un bloque de hora fija no se recorta: su mínimo ES su duración.
+        minimo = ideal if tipo == "fixed" else max(15, int(form.get("min") or ideal))
+
+        conn.execute(
+            "UPDATE habits SET name = ?, enabled = ?, kind = ?, ideal_minutes = ?, "
+            "min_minutes = ?, window_start = ?, window_end = ?, preferred_start = ?, "
+            "days = ?, per_week = ?, share = ?, color_id = ?, home_account_id = ?, "
+            "cleanup_past = ? WHERE id = ?",
+            (
+                (form.get("name") or habito["name"]).strip(),
+                1 if form.get("enabled") == "on" else 0,
+                tipo,
+                ideal,
+                min(minimo, ideal),   # el mínimo nunca puede pasar del ideal
+                form.get("w0") or habito["window_start"],
+                form.get("w1") or habito["window_end"],
+                (form.get("pref") or "").strip() or None,
+                dias or habito["days"],
+                int(form.get("per_week") or 0),
+                1 if form.get("share") == "on" else 0,
+                (form.get("color") or "").strip(),
+                int(form.get("home")) if (form.get("home") or "").isdigit() else None,
+                1 if form.get("cleanup") == "on" else 0,
+                habit_id,
+            ),
+        )
+        # Cambió su regla: se vuelven a decidir SUS posiciones, y se olvidan los
+        # días que habías borrado a mano de ESTE bloque (la regla nueva manda).
+        conn.execute("DELETE FROM habit_skips WHERE habit_id = ?", (habit_id,))
+        conn.execute("DELETE FROM habit_slots WHERE habit_id = ?", (habit_id,))
         conn.commit()
-        db.log(conn, "habitos_guardados", "")
+        db.log(conn, "habitos_guardados", habito["name"])
     finally:
         conn.close()
-    return RedirectResponse("/", status_code=303)
+    return volver("blocks")
 
 
 CAMPOS_HABITO = (
@@ -269,7 +299,7 @@ def eliminar_habito(habit_id: int):
             db.log(conn, "habito_borrado", fila["name"], "warn")
     finally:
         conn.close()
-    return RedirectResponse("/", status_code=303)
+    return volver("blocks")
 
 
 @app.post("/trash/restore")
@@ -289,7 +319,7 @@ def restaurar_habito():
         db.set_setting(conn, "papelera", None)
     finally:
         conn.close()
-    return RedirectResponse("/", status_code=303)
+    return volver("blocks")
 
 
 @app.post("/trash/dismiss")
@@ -299,7 +329,7 @@ def descartar_papelera():
         db.set_setting(conn, "papelera", None)
     finally:
         conn.close()
-    return RedirectResponse("/", status_code=303)
+    return volver("blocks")
 
 
 @app.post("/blocks/new")
@@ -316,13 +346,13 @@ def nuevo_habito(nombre: str = Form("")):
         db.log(conn, "habito_creado", nombre)
     finally:
         conn.close()
-    return RedirectResponse("/", status_code=303)
+    return volver("blocks")
 
 
 @app.post("/sync")
 def sincronizar(full: str = Form("")):
     cycle_job(force_full=(full == "on"))
-    return RedirectResponse("/", status_code=303)
+    return volver("dashboard")
 
 
 @app.post("/wipe")
@@ -336,7 +366,7 @@ def limpiar(confirmacion: str = Form("")):
     try:
         if confirmacion.strip().upper() != "BORRAR":
             db.log(conn, "limpieza_cancelada", "wrong confirmation word", "warn")
-            return RedirectResponse("/", status_code=303)
+            return volver("danger")
 
         # El modo simulación queda encendido: al terminar, los calendarios están
         # vacíos de CalSync y nada se recrea hasta que tú lo decidas.
@@ -345,7 +375,7 @@ def limpiar(confirmacion: str = Form("")):
             engine.cleanup_all_mirrors(conn)
     finally:
         conn.close()
-    return RedirectResponse("/", status_code=303)
+    return volver("danger")
 
 
 @app.get("/api/status")

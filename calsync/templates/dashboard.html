@@ -5,783 +5,962 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CalSync</title>
 <style>
-/* All styling lives here: no CDN, no downloads, works offline. */
-:root {
-  --bg: #faf9f7; --card: #ffffff; --line: #e7e5e4; --ink: #292524;
-  --dim: #78716c; --faint: #a8a29e;
-  --ok: #047857; --ok-bg: #ecfdf5; --warn: #b45309; --warn-bg: #fffbeb;
-  --bad: #b91c1c; --bad-bg: #fef2f2; --info: #1d4ed8; --info-bg: #eff6ff;
+/* Sin CDN y sin fuentes web: esto corre en tu portátil y tiene que funcionar
+   sin internet. Todo el estilo vive aquí.
+
+   Layout: barra lateral con las secciones, contenido a la derecha.
+
+   Sobre el espaciado: el aire entre piezas sale del `gap` del contenedor, no
+   de márgenes entre hermanos. Las reglas por adyacencia dejan de aplicar en
+   cuanto algo queda anidado, y eso ya rompió el espaciado tres veces. */
+:root{
+  --papel:#f7f7f5; --tarjeta:#ffffff; --tinta:#17171a; --tinta-2:#5c5c66;
+  --tinta-3:#8e8e99; --linea:#e4e4e0; --linea-2:#efefec;
+  --vivo:#0f7a52; --vivo-fondo:#dff3e9;
+  --sucio:#a16207; --sucio-fondo:#fdf6e3; --sucio-borde:#e0a92e;
+  --rojo:#b3261e; --rojo-fondo:#fdecea;
+  --rejilla:#ececE8; --hoy:#eef4ff; --ahora:#d93025;
+  --sel:#17171a; --sel-texto:#ffffff; --apagado:#f2f2ef;
+  --sis:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
-* { box-sizing: border-box; }
-body {
-  margin: 0; background: var(--bg); color: var(--ink);
-  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
-.wrap { max-width: 900px; margin: 0 auto; padding: 40px 24px 64px; }
-h1 { font-size: 24px; letter-spacing: -0.02em; margin: 0; }
-h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
-     color: var(--dim); margin: 32px 0 10px; font-weight: 600; }
-p { margin: 6px 0; }
-a { color: var(--info); }
-code { font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-       background: #f5f5f4; padding: 2px 5px; border-radius: 4px; }
+@media (prefers-color-scheme:dark){:root{
+  --papel:#131316; --tarjeta:#1c1c20; --tinta:#f2f2f0; --tinta-2:#a8a8b2;
+  --tinta-3:#75757f; --linea:#2e2e34; --linea-2:#26262b;
+  --vivo:#54c79a; --vivo-fondo:#13332a;
+  --sucio:#e0b457; --sucio-fondo:#33280f; --sucio-borde:#9c7a23;
+  --rojo:#f2635a; --rojo-fondo:#331714;
+  --rejilla:#26262b; --hoy:#1b2232; --ahora:#f2635a;
+  --sel:#f2f2f0; --sel-texto:#131316; --apagado:#232329; color-scheme:dark;
+}}
+*{box-sizing:border-box}
+body{background:var(--papel);color:var(--tinta);font-family:var(--sis);
+  font-size:14px;line-height:1.5;margin:0}
+h1,h2,h3,p{margin:0}
+a{color:inherit}
 
-header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
-header p { color: var(--dim); font-size: 13px; margin: 4px 0 0; }
+.envoltura{max-width:1180px;margin:0 auto;padding:20px 18px 56px}
+.top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;
+  flex-wrap:wrap;margin-bottom:18px}
+.marca h1{font-size:25px;font-weight:650;letter-spacing:-.02em}
+.marca p{margin-top:2px;color:var(--tinta-3);font-size:12.5px}
+.pill{display:inline-flex;align-items:center;gap:6px;background:var(--vivo-fondo);
+  color:var(--vivo);font-size:11px;font-weight:650;letter-spacing:.07em;
+  text-transform:uppercase;padding:5px 11px;border-radius:999px;white-space:nowrap}
+.pill.dormido{background:var(--sucio-fondo);color:var(--sucio)}
+.punto{width:6px;height:6px;border-radius:50%;background:currentColor}
 
-.pill { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; padding: 5px 11px;
-        border-radius: 999px; border: 1px solid; white-space: nowrap; }
-.pill.sim { background: var(--warn-bg); color: var(--warn); border-color: #fde68a; }
-.pill.live { background: var(--ok-bg); color: var(--ok); border-color: #a7f3d0; }
+.shell{display:grid;grid-template-columns:208px minmax(0,1fr);gap:26px;align-items:start}
+@media(max-width:800px){.shell{grid-template-columns:1fr;gap:14px}}
+nav.lado{position:sticky;top:12px;display:flex;flex-direction:column;gap:2px}
+@media(max-width:800px){nav.lado{position:static;flex-direction:row;overflow-x:auto;
+  gap:6px;padding-bottom:6px}}
+nav .grupo{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--tinta-3);padding:16px 10px 6px}
+@media(max-width:800px){nav .grupo{display:none}}
+nav button{appearance:none;background:none;border:0;font:inherit;font-size:13.5px;
+  color:var(--tinta-2);text-align:left;padding:7px 10px;border-radius:7px;cursor:pointer;
+  display:flex;align-items:center;gap:9px;width:100%;white-space:nowrap}
+@media(max-width:800px){nav button{width:auto;border:1px solid var(--linea)}}
+nav button:hover{background:var(--linea-2);color:var(--tinta)}
+nav button[aria-current="true"]{background:var(--sel);color:var(--sel-texto);font-weight:600}
+nav button:focus-visible{outline:2px solid var(--tinta);outline-offset:2px}
+nav .cuenta{margin-left:auto;font-size:11px;opacity:.6;font-variant-numeric:tabular-nums}
+nav button[aria-current="true"] .cuenta{opacity:.75}
 
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
-.alert { padding: 14px 16px; border-radius: 10px; font-size: 14px;
-         background: var(--bad-bg); border: 1px solid #fecaca; color: var(--bad); margin-top: 20px; }
+.shell>main{min-width:0}
+main>section{display:none}
+main>section.viva{display:flex;flex-direction:column;gap:13px;min-width:0}
+.enc{display:flex;flex-direction:column;gap:4px}
+.bloque{display:flex;flex-direction:column;gap:13px;margin-top:17px}
+.cabeza-sec{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.titulo-sec{font-size:17px;font-weight:620;letter-spacing:-.01em}
+.titulo-sec.chico{font-size:15px}
+.sub-sec{color:var(--tinta-3);font-size:12.5px;max-width:74ch}
 
-.stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 24px; }
-.stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
-.stat b { display: block; font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
-.stat b.pending { color: var(--warn); }
-.stat b.bad { color: var(--bad); }
-.stat span { font-size: 11px; color: var(--dim); }
-a.stat { text-decoration: none; color: inherit; display: block; }
-a.stat:hover { border-color: #d6d3d1; }
-a.stat.alerta { border-color: #fecaca; background: #fffbfb; }
+.tarjeta{background:var(--tarjeta);border:1px solid var(--linea);border-radius:11px}
+.tarjeta>.cuerpo{padding:15px 17px;display:flex;flex-direction:column;gap:12px}
+.limpio{padding:22px 16px;text-align:center;color:var(--tinta-3);font-size:13px}
 
-/* --- Attention list --- */
-h2 .cuenta-total { display: inline-block; margin-left: 6px; padding: 1px 7px;
-                   border-radius: 999px; background: var(--bad-bg); color: var(--bad);
-                   font-size: 11px; letter-spacing: 0; }
-/* Five rows plus a sliver of the next: the list must not push the rest of the
-   dashboard off screen, and the cut edge signals there is more. */
-ul.conf { list-style: none; margin: 0; padding: 0;
-          max-height: calc(5.5 * 5.4rem); overflow-y: auto; }
-ul.conf li { display: flex; gap: 14px; padding: 12px 16px; border-top: 1px solid #f5f5f4;
-             border-left: 3px solid transparent; }
-ul.conf li:first-child { border-top: 0; }
-ul.conf li.doble_agenda { border-left-color: var(--bad); }
-ul.conf li.reunion_en_bloque { border-left-color: var(--warn); }
-ul.conf li.bloque_sin_lugar { border-left-color: #d6d3d1; }
-ul.conf .cuando { width: 96px; flex: none; }
-ul.conf .fecha { display: block; font-size: 13px; font-weight: 500; }
-ul.conf .hora { display: block; font-size: 11px; color: var(--dim); }
-ul.conf .clase { display: block; font-size: 10px; text-transform: uppercase;
-                 letter-spacing: 0.06em; color: var(--dim); margin-bottom: 2px; }
-ul.conf .nombre { display: block; font-size: 14px; }
-ul.conf .detalle { display: block; font-size: 12px; color: var(--dim); margin-top: 2px; }
-@media (max-width: 620px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+.cifras{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:9px}
+.cifra{background:var(--tarjeta);border:1px solid var(--linea);border-radius:10px;padding:12px 13px}
+.cifra b{display:block;font-size:23px;font-weight:620;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums}
+.cifra span{display:block;font-size:11.5px;color:var(--tinta-3);margin-top:1px;line-height:1.35}
 
-.row { padding: 14px 16px; border-top: 1px solid #f5f5f4; }
-.card > .row:first-child { border-top: 0; }
-.acct { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.acct .name { font-weight: 500; font-size: 14px; }
-.acct .mail { font-size: 13px; color: var(--dim); }
-.acct .meta { font-size: 11px; color: var(--faint); margin-top: 3px; }
-.acct .err { font-size: 11px; color: var(--bad); margin-top: 3px; }
+.fila-aviso{display:flex;gap:11px;padding:11px 15px;border-bottom:1px solid var(--linea-2);
+  font-size:13px;flex-wrap:wrap}
+.fila-aviso:last-child{border-bottom:0}
+.fila-aviso .cuando{color:var(--tinta-3);font-size:12px;white-space:nowrap;min-width:104px;
+  font-variant-numeric:tabular-nums}
+.fila-aviso .que{flex:1 1 220px;min-width:0}
+.fila-aviso .que b{font-weight:600}
+.fila-aviso .det{color:var(--tinta-3);font-size:12px}
+.scrollable{max-height:260px;overflow-y:auto}
 
-button { font: inherit; font-size: 13px; padding: 8px 16px; border-radius: 7px;
-         border: 1px solid var(--ink); background: var(--ink); color: #fff; cursor: pointer; }
-button:hover { background: #44403c; }
-button.ghost { background: #fff; color: var(--ink); border-color: #d6d3d1; font-size: 12px; padding: 6px 12px; }
-button.ghost:hover { background: #fafaf9; }
-button.danger { background: var(--bad); border-color: var(--bad); }
-button.danger:hover { background: #991b1b; }
+details.plegable{border-top:1px solid var(--linea);padding-top:11px}
+details.plegable>summary{cursor:pointer;font-size:13px;color:var(--tinta-2);list-style:none;
+  display:flex;align-items:center;gap:7px;padding:2px 0}
+details.plegable>summary::-webkit-details-marker{display:none}
+details.plegable>summary::before{content:"▸";font-size:10px;color:var(--tinta-3)}
+details.plegable[open]>summary::before{content:"▾"}
+details.plegable>summary:hover{color:var(--tinta)}
+details.plegable .adentro{padding-top:11px;font-size:12.5px;color:var(--tinta-2)}
 
-input[type=text], input:not([type]), select {
-  font: inherit; font-size: 13px; padding: 8px 10px; border-radius: 7px;
-  border: 1px solid #d6d3d1; background: #fff; color: var(--ink);
-}
-input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--ink); margin: 0; }
-label.check { display: flex; align-items: flex-start; gap: 9px; font-size: 14px; cursor: pointer; }
-label.check .hint { display: block; font-size: 12px; color: var(--dim); margin-top: 3px; }
-.connect { display: flex; gap: 8px; background: #fafaf9; border-radius: 0 0 10px 10px; }
-.connect input { flex: 1; }
-.note { font-size: 12px; color: var(--dim); margin-top: 8px; }
+/* ---- calendario ---- */
+.cal-barra{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.flechas{display:inline-flex;gap:4px}
+.flechas a,.hoy-btn{font:inherit;font-size:13px;line-height:1;background:var(--tarjeta);
+  border:1px solid var(--linea);color:var(--tinta);border-radius:7px;padding:6px 10px;
+  text-decoration:none;display:inline-block}
+.hoy-btn{font-size:12px}
+.flechas a:hover,.hoy-btn:hover{border-color:var(--tinta-3)}
+.cal-barra .rango{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
+.cal-barra .leyenda{margin-left:auto;display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;
+  color:var(--tinta-3)}
+.cal-barra .leyenda i{display:inline-block;width:9px;height:9px;border-radius:2.5px;
+  margin-right:5px;vertical-align:-1px}
+.cal-marco{background:var(--tarjeta);border:1px solid var(--linea);border-radius:11px;overflow:hidden}
+.cal-scroll{overflow:auto}
+.cal{min-width:660px;position:relative}
+.cal-cab{display:grid;grid-template-columns:52px repeat(7,minmax(0,1fr));position:sticky;top:0;
+  z-index:3;background:var(--tarjeta);border-bottom:1px solid var(--linea)}
+.cal-cab .dia{padding:8px 4px 9px;text-align:center;border-left:1px solid var(--linea-2)}
+.cal-cab .dia .nom{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--tinta-3)}
+.cal-cab .dia .num{font-size:19px;font-weight:550;letter-spacing:-.02em;margin-top:1px;
+  font-variant-numeric:tabular-nums}
+.cal-cab .dia.es-hoy .num{background:var(--ahora);color:#fff;border-radius:50%;width:30px;
+  height:30px;display:inline-flex;align-items:center;justify-content:center;font-weight:600}
+.cal-cab .dia.es-hoy .nom{color:var(--ahora);font-weight:650}
+.cal-cuerpo{display:grid;grid-template-columns:52px repeat(7,minmax(0,1fr));position:relative}
+.gutter .h{height:{{ px_hora }}px;position:relative}
+.gutter .h span{position:absolute;top:-7px;right:7px;font-size:10.5px;color:var(--tinta-3);
+  font-variant-numeric:tabular-nums}
+.col{position:relative;border-left:1px solid var(--linea-2)}
+.col.es-hoy{background:var(--hoy)}
+.col .h{height:{{ px_hora }}px;border-top:1px solid var(--rejilla)}
+.col .h:first-child{border-top:0}
+.ev{position:absolute;border-radius:5px;padding:2px 5px;overflow:hidden;font-size:11px;
+  line-height:1.25;border:1px solid rgba(255,255,255,.28)}
+.ev .t{font-weight:600;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ev .r{display:block;opacity:.86;font-size:10px;font-variant-numeric:tabular-nums}
+.ev.reunion{background:var(--tarjeta);border:1px solid var(--linea);color:var(--tinta-2);
+  border-left:3px solid var(--tinta-3)}
+.ev.corto{padding-top:1px}
+.ev.corto .r{display:none}
+.linea-ahora{position:absolute;left:0;right:0;height:1.5px;background:var(--ahora);z-index:2;
+  pointer-events:none}
+.linea-ahora::before{content:"";position:absolute;left:-4px;top:-3.5px;width:8.5px;height:8.5px;
+  border-radius:50%;background:var(--ahora)}
+.cal-vacio{padding:34px 18px;text-align:center;color:var(--tinta-3);font-size:13px}
+.cal-pie{font-size:11.5px;color:var(--tinta-3)}
 
-ul.plan { list-style: none; margin: 0; padding: 0; max-height: 340px; overflow-y: auto; }
-ul.plan li { display: flex; align-items: center; gap: 10px; padding: 9px 16px;
-             border-top: 1px solid #f5f5f4; font-size: 13px; }
-ul.plan li:first-child { border-top: 0; }
-.tag { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 5px; white-space: nowrap; }
-.tag.create { background: var(--ok-bg); color: var(--ok); }
-.tag.update { background: var(--info-bg); color: var(--info); }
-.tag.delete { background: var(--bad-bg); color: var(--bad); }
-.title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.arrow { margin-left: auto; font-size: 11px; color: var(--faint); white-space: nowrap; }
-.empty { padding: 36px 16px; text-align: center; font-size: 13px; color: var(--faint); }
-.more { padding: 8px 16px; font-size: 11px; color: var(--dim); background: #fafaf9;
-        border-top: 1px solid #f5f5f4; }
+/* ---- bloques ---- */
+.bloq{border-bottom:1px solid var(--linea-2);padding:14px 17px}
+.bloq:last-child{border-bottom:0}
+.bloq.apagado .nom,.bloq.apagado .bloq-datos{opacity:.5}
+.bloq.sucio{background:var(--sucio-fondo)}
+.bloq-cab{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.swatch{width:11px;height:11px;border-radius:3px;flex:none;border:1px solid var(--linea)}
+.bloq-cab .nom{font-weight:600;font-size:14px}
+.chip{font-size:10.5px;padding:2px 7px;border-radius:999px;border:1px solid var(--linea);
+  color:var(--tinta-3);white-space:nowrap}
+.chip.on{background:var(--vivo-fondo);color:var(--vivo);border-color:transparent;font-weight:600}
+.bloq-datos{display:flex;gap:7px 20px;flex-wrap:wrap;margin-top:7px;font-size:12px;color:var(--tinta-2)}
+.bloq-datos b{font-weight:600;color:var(--tinta);font-variant-numeric:tabular-nums}
 
-details summary { cursor: pointer; font-size: 12px; color: var(--dim); }
-details summary:hover { color: var(--ink); }
-.skiplist { list-style: none; margin: 8px 0 0; padding: 0 0 0 4px; font-size: 12px; color: var(--dim); }
-.skiplist li { padding: 2px 0; }
-.skiplist .who { color: var(--faint); }
+.palanca{display:inline-flex;align-items:center;gap:7px;cursor:pointer;user-select:none;
+  position:relative}
+.palanca input{position:absolute;opacity:0;width:0;height:0}
+.palanca .riel{width:34px;height:19px;border-radius:999px;background:var(--linea);
+  position:relative;transition:background .15s;flex:none}
+.palanca .riel::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;
+  border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+.palanca input:checked+.riel{background:var(--vivo)}
+.palanca input:checked+.riel::after{transform:translateX(15px)}
+.palanca input:focus-visible+.riel{outline:2px solid var(--tinta);outline-offset:2px}
+.palanca .et{font-size:12.5px;color:var(--tinta-2);min-width:22px;font-weight:600}
 
-table.dirs { border-collapse: collapse; font-size: 13px; width: 100%; }
-table.dirs th { font-weight: 500; font-size: 11px; color: var(--dim); text-align: left;
-                padding: 0 10px 8px 0; }
-table.dirs td { padding: 4px 10px 4px 0; vertical-align: middle; }
-table.dirs td.dir { white-space: nowrap; color: #57534e; }
-table.dirs .na { color: #c4c1bd; }
-table.dirs select { max-width: 200px; }
-table.dirs th.mid, table.dirs td.mid { text-align: center; padding-left: 10px; }
-table.dirs th.mid { line-height: 1.25; }
-.hint { display: block; font-size: 12px; color: var(--dim); }
+.editor{border-top:1px dashed var(--linea);margin-top:12px;padding-top:13px}
+.editor .rejilla-campos{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:11px}
+.campito{display:flex;flex-direction:column;gap:4px;font-size:10.5px;color:var(--tinta-3);
+  letter-spacing:.05em;text-transform:uppercase;font-weight:650;min-width:0}
+.campito select,.campito input[type=text]{text-transform:none;letter-spacing:0;font-weight:400;
+  font-size:12.5px;width:100%}
+.campito.inhabil{opacity:.4}
+.editado{border-color:var(--sucio-borde)!important;box-shadow:0 0 0 2px var(--sucio-fondo)}
+.editor .dias{display:flex;gap:5px;flex-wrap:wrap;margin-top:12px}
+.editor .dias label{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;
+  color:var(--tinta-2);border:1px solid var(--linea);border-radius:999px;padding:3px 10px;
+  cursor:pointer;position:relative}
+.editor .dias label.marcado{background:var(--sel);color:var(--sel-texto);border-color:var(--sel);
+  font-weight:600}
+.editor .dias input{position:absolute;opacity:0;width:0;height:0}
+.editor .interruptores{display:flex;gap:18px;flex-wrap:wrap;margin-top:13px;align-items:center}
+.editor .interruptores label.simple{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;
+  color:var(--tinta-2);cursor:pointer}
+.editor .pie{display:flex;gap:9px;margin-top:14px;align-items:center;flex-wrap:wrap}
+.editor .pie .ay{font-size:11.5px;color:var(--tinta-3);margin-left:auto;flex:1 1 220px;
+  min-width:0;text-align:right}
+.sin-guardar{font-size:11.5px;font-weight:650;color:var(--sucio);background:var(--sucio-fondo);
+  border:1px solid var(--sucio-borde);border-radius:999px;padding:3px 10px;white-space:nowrap}
 
-.detail-row { display: flex; align-items: center; gap: 12px; font-size: 13px; margin-top: 8px; }
-.detail-row .who { width: 110px; color: #57534e; }
-.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
-.fields label { font-size: 12px; color: var(--dim); }
-.fields input { width: 100%; margin-top: 4px; }
-@media (max-width: 620px) { .fields { grid-template-columns: 1fr; } }
-.stack > * + * { margin-top: 10px; }
-.rowtitle { font-weight: 500; font-size: 14px; margin-bottom: 10px; }
+.campo{display:flex;gap:16px;padding:15px 18px;border-bottom:1px solid var(--linea-2);
+  align-items:flex-start;flex-wrap:wrap}
+.campo:last-child{border-bottom:0}
+.campo>.izq{flex:1 1 240px;min-width:0}
+.campo .et{font-size:13.5px;font-weight:550;line-height:1.35}
+.campo .ay{font-size:12px;color:var(--tinta-3);margin-top:4px;line-height:1.45;max-width:64ch}
+.campo>.der{flex:0 0 auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap;
+  justify-content:flex-end;min-width:184px;padding-top:1px}
+.campo.apilado{flex-direction:column;gap:9px}
+.campo.apilado>.izq,.campo.apilado>.der{flex:1 1 auto;width:100%;min-width:0;
+  justify-content:flex-start}
 
-ul.log { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow-y: auto;
-         font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
-ul.log li { display: flex; gap: 10px; padding: 3px 14px; color: #57534e;
-            border-top: 1px solid #fafaf9; }
-ul.log li.error { color: var(--bad); background: #fef2f2aa; }
-ul.log li.warn { color: var(--warn); }
-ul.log .ts { color: var(--faint); }
-ul.log .act { white-space: nowrap; }
-ul.log .det { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); }
+input[type=text],select,textarea{font:inherit;font-size:13px;color:var(--tinta);
+  background:var(--tarjeta);border:1px solid var(--linea);border-radius:7px;padding:6px 9px;
+  max-width:100%}
+select:disabled,input:disabled{background:var(--apagado);color:var(--tinta-3)}
+textarea{width:100%;min-height:132px;resize:vertical;line-height:1.5;padding:9px 11px;
+  font-family:inherit}
+input[type=checkbox]{width:15px;height:15px;accent-color:var(--sel)}
+.cuenta-fila{display:flex;gap:12px;align-items:center;padding:14px 17px;
+  border-bottom:1px solid var(--linea-2);flex-wrap:wrap}
+.cuenta-fila:last-child{border-bottom:0}
+.cuenta-fila .izq{flex:1 1 200px;min-width:0}
+.cuenta-fila .nom{font-weight:600;font-size:13.5px}
+.cuenta-fila .mail{font-size:12px;color:var(--tinta-3);overflow:hidden;text-overflow:ellipsis}
+.cuenta-fila .cuando{font-size:11.5px;color:var(--tinta-3);font-variant-numeric:tabular-nums}
+.cuenta-fila .mal{color:var(--rojo);font-size:11.5px}
 
-/* --- Color swatches --- */
-.paleta { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
-.paleta .chip { cursor: pointer; line-height: 0; }
-.paleta .chip input { position: absolute; opacity: 0; pointer-events: none; }
-.paleta .chip span { display: block; width: 17px; height: 17px; border-radius: 50%;
-                     box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12); }
-.paleta .chip input:checked + span { box-shadow: 0 0 0 2px var(--card),
-                                     0 0 0 4px var(--ink); }
-.paleta .chip:hover span { transform: scale(1.12); }
+.btn{font:inherit;font-size:12.5px;padding:6px 13px;border-radius:7px;border:1px solid var(--linea);
+  background:var(--tarjeta);color:var(--tinta);cursor:pointer}
+.btn:hover{border-color:var(--tinta-3)}
+.btn.fuerte{background:var(--sel);color:var(--sel-texto);border-color:var(--sel);font-weight:600}
+.btn.peligro{color:var(--rojo);border-color:var(--rojo)}
+.btn:focus-visible{outline:2px solid var(--tinta);outline-offset:2px}
+form.enlinea{display:contents}
 
-/* --- Protected blocks --- */
-/* Three blocks then it scrolls: the full editor is five 200px blocks and it
-   pushed everything else off screen. */
-.bloques { max-height: calc(3.4 * 13rem); overflow-y: auto; }
-.habit.apagado { background: #fafaf9; }
-.habit.apagado .hname { color: var(--dim); }
-.habit-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.hname { font-weight: 500; font-size: 14px; min-width: 170px; }
-.check.tiny { font-size: 11px; color: var(--dim); gap: 5px; align-items: center; }
+.paleta{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.paleta label{position:relative;cursor:pointer;line-height:0}
+.paleta input{position:absolute;opacity:0;width:0;height:0}
+.paleta span{display:inline-block;width:19px;height:19px;border-radius:5px;
+  border:2px solid transparent;box-shadow:inset 0 0 0 1px rgba(0,0,0,.14)}
+.paleta input:checked+span{border-color:var(--tinta);transform:scale(1.08)}
+.paleta input:focus-visible+span{outline:2px solid var(--tinta);outline-offset:2px}
 
-.habit { position: relative; }
-.trash { position: absolute; top: 12px; right: 12px; background: none; border: 0;
-         color: #d9b8b8; padding: 4px; border-radius: 6px; cursor: pointer;
-         display: flex; line-height: 0; }
-.trash:hover { color: var(--bad); background: var(--bad-bg); }
+.tabla-envoltura{overflow-x:auto}
+table.pares{border-collapse:collapse;width:100%;font-size:12.5px;min-width:560px}
+table.pares th,table.pares td{padding:10px 12px;border-bottom:1px solid var(--linea-2);text-align:left}
+table.pares th{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--tinta-3);
+  font-weight:650}
+table.pares td.centro,table.pares th.centro{text-align:center}
+table.pares tr:last-child td{border-bottom:0}
+.flecha{color:var(--tinta-3);padding:0 5px}
 
-.undo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-        padding: 12px 16px; border-radius: 10px; margin-bottom: 12px;
-        background: var(--warn-bg); border: 1px solid #fde68a; font-size: 13px;
-        color: #7c4a0a; }
-.undo .grow { flex: 1; }
-.undo button { font-size: 12px; padding: 6px 12px; }
-.undo button.link { background: none; border: 0; color: #7c4a0a;
-                    text-decoration: underline; padding: 6px 2px; }
-.habit-grid { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; }
-.habit-grid label { font-size: 11px; color: var(--dim); display: flex;
-                    flex-direction: column; gap: 3px; }
-.habit-grid select { min-width: 92px; }
-.habit-grid select:disabled { background: #f5f5f4; color: var(--faint); }
-.habit-days { display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
-.habit-days .day { display: flex; align-items: center; gap: 5px; font-size: 12px;
-                   color: #57534e; cursor: pointer; }
-.nuevo { display: flex; gap: 8px; margin-top: 14px; }
-.nuevo input { flex: 1; max-width: 380px; }
+.log{font-size:12.5px;max-height:320px;overflow-y:auto}
+.log .l{display:flex;gap:11px;padding:7px 0;border-bottom:1px solid var(--linea-2)}
+.log .l:last-child{border-bottom:0}
+.log .ts{color:var(--tinta-3);min-width:102px;font-variant-numeric:tabular-nums;
+  font-family:var(--mono);font-size:11px}
+.log .ac{font-weight:600;min-width:104px}
+.log .de{color:var(--tinta-2);min-width:0;overflow-wrap:anywhere}
+.log .l.error .ac{color:var(--rojo)}
+.log .l.warn .ac{color:var(--sucio)}
 
-.notas { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.notas label { font-size: 11px; color: var(--dim); display: flex;
-               flex-direction: column; gap: 4px; }
-.notas textarea { font: inherit; font-size: 12px; line-height: 1.45; padding: 9px 11px;
-                  border-radius: 7px; border: 1px solid #d6d3d1; resize: vertical;
-                  color: var(--ink); }
-@media (max-width: 620px) { .notas { grid-template-columns: 1fr; } }
-
-/* The save button only shows up when there is actually something to save. */
-.guardar { margin-top: 12px; display: flex; align-items: center; gap: 12px;
-           visibility: hidden; }
-.guardar.sucio { visibility: visible; }
-.guardar .pendiente { font-size: 12px; color: var(--warn); }
-
-/* --- Block schedule --- */
-.agenda { display: grid; grid-template-columns: repeat(7, 1fr); }
-.agenda-dia { border-left: 1px solid #f5f5f4; padding: 12px 10px; min-height: 90px; }
-.agenda-dia:first-child { border-left: 0; }
-.agenda-fecha { font-size: 11px; color: var(--dim); margin-bottom: 8px; }
-.agenda-bloque { font-size: 11px; line-height: 1.35; margin-bottom: 7px; }
-.agenda-bloque .hora { display: block; color: var(--faint); }
-.agenda-bloque .nom { display: block; color: var(--ink); }
-.agenda-bloque .dur { color: var(--faint); }
-@media (max-width: 720px) { .agenda { grid-template-columns: repeat(3, 1fr); } }
-
-.panic { border-color: #fecaca; padding: 16px; }
-.panic summary { color: var(--bad); font-size: 13px; font-weight: 500; }
-.panic p { font-size: 12px; color: #57534e; margin-top: 10px; }
-.panic form { display: flex; gap: 8px; margin-top: 12px; }
-footer { text-align: center; font-size: 11px; color: var(--faint); margin-top: 32px; }
-footer .bad { color: var(--bad); }
+.peligro-caja{border-color:color-mix(in srgb,var(--rojo) 35%,var(--linea))}
+.nota-pie{font-size:12px;color:var(--tinta-3);max-width:70ch}
+.nota-pie b{color:var(--tinta-2)}
+.aviso-credenciales{background:var(--rojo-fondo);color:var(--rojo);border-radius:9px;
+  padding:11px 14px;font-size:13px}
+.undo{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--sucio-fondo);
+  border:1px solid var(--sucio-borde);border-radius:9px;padding:10px 14px;font-size:13px}
+.undo .grow{flex:1 1 200px}
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="envoltura">
 
-  <header>
-    <div>
+  <div class="top">
+    <div class="marca">
       <h1>CalSync</h1>
       <p>Local calendar sync · checks every {{ poll }} min</p>
     </div>
     {% if settings.simulation %}
-      <span class="pill sim">DRY RUN · writes nothing</span>
+      <span class="pill dormido"><span class="punto"></span> Dry run</span>
     {% else %}
-      <span class="pill live">LIVE · syncing</span>
+      <span class="pill"><span class="punto"></span> Live · syncing</span>
     {% endif %}
-  </header>
+  </div>
 
   {% if not credentials_ok %}
-  <div class="alert">
-    <strong>credentials.json is missing.</strong> Put it in the project folder following
-    <code>STEP-1-Google-credentials.md</code>, then reload this page.
-  </div>
+  <p class="aviso-credenciales">credentials.json is missing from the CalSync folder.
+    Nothing can sync until it is there — see STEP-1-Google-credentials.md.</p>
   {% endif %}
 
-  {% set activas = accounts|selectattr('enabled')|list %}
+  <div class="shell">
+    <nav class="lado">
+      <button type="button" data-ir="dashboard"><span>Dashboard</span></button>
+      <button type="button" data-ir="blocks"><span>Blocks</span>
+        <span class="cuenta">{{ habits | selectattr('enabled') | list | length }}</span></button>
+      <div class="grupo">Settings</div>
+      <button type="button" data-ir="accounts"><span>Accounts</span>
+        <span class="cuenta">{{ accounts | selectattr('enabled') | list | length }}</span></button>
+      <button type="button" data-ir="sharing"><span>Sharing</span></button>
+      <button type="button" data-ir="general"><span>General</span></button>
+      <button type="button" data-ir="danger"><span>Danger zone</span></button>
+    </nav>
 
-  <div class="stats">
-    <div class="stat"><b>{{ activas|length }}</b><span>accounts connected</span></div>
-    <div class="stat"><b>{{ counts.eventos }}</b><span>own events read</span></div>
-    <div class="stat"><b>{{ counts.espejos }}</b><span>busy blocks synced</span></div>
-    <div class="stat"><b>{{ counts.bloques }}</b><span>protected blocks</span></div>
-    <a class="stat {% if conflicts %}alerta{% endif %}" href="#conflictos">
-      <b class="{% if conflicts %}bad{% endif %}">{{ conflicts|length }}</b>
-      <span>{{ 'things to review' if conflicts else 'nothing to review' }}</span>
-    </a>
+    <main>
+
+{# ======================= DASHBOARD ======================= #}
+<section id="p-dashboard">
+  <div class="cifras">
+    <div class="cifra"><b>{{ accounts | selectattr('enabled') | list | length }}</b>
+      <span>accounts connected</span></div>
+    <div class="cifra"><b>{{ counts.eventos }}</b><span>own events read</span></div>
+    <div class="cifra"><b>{{ counts.espejos }}</b><span>busy blocks synced</span></div>
+    <div class="cifra"><b>{{ counts.bloques }}</b><span>protected blocks</span></div>
+    <div class="cifra"><b>{{ conflicts | length }}</b>
+      <span>{% if conflicts %}need{{ '' if conflicts|length > 1 else 's' }} your attention
+            {% else %}nothing to review{% endif %}</span></div>
   </div>
 
-  <!-- ATTENTION LIST: the first thing to see, not the last -->
-  <h2 id="conflictos">
-    Needs your attention
-    {% if conflicts %}<span class="cuenta-total">{{ conflicts|length }}</span>{% endif %}
-  </h2>
-  <div class="card">
+  <div class="enc">
+    <div class="titulo-sec">Needs your attention</div>
+    <p class="sub-sec">CalSync never moves meetings that involve other people, and never
+      declines invitations. This is what it spotted, so you can decide.</p>
+  </div>
+  <div class="tarjeta">
     {% if conflicts %}
-      <ul class="conf">
-        {% for c in conflicts %}
-        <li class="{{ c.tipo }}">
-          <div class="cuando">
-            <span class="fecha">{{ c.dia[8:10] }}/{{ c.dia[5:7] }}</span>
-            <span class="hora">{{ c.hora }}</span>
-          </div>
-          <div class="qué">
-            <span class="clase">
-              {% if c.tipo == 'doble_agenda' %}double booked
-              {% elif c.tipo == 'reunion_en_bloque' %}meeting inside your block
-              {% else %}block found no slot{% endif %}
-            </span>
-            <span class="nombre">{{ c.titulo }}</span>
-            <span class="detalle">{{ c.detalle }}</span>
-          </div>
-        </li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <div class="empty">
-        All clear. No meetings overlap across accounts, none fall inside your
-        protected blocks, and every block found a slot.
+    <div class="scrollable">
+      {% for c in conflicts %}
+      <div class="fila-aviso">
+        <span class="cuando">{{ c.dia }} · {{ c.hora }}</span>
+        <span class="que"><b>{{ c.titulo }}</b><br><span class="det">{{ c.detalle }}</span></span>
       </div>
-    {% endif %}
-  </div>
-  <p class="note">
-    CalSync never moves meetings that involve other people, and never declines
-    invitations. This is what it spotted, so you can decide.
-  </p>
-
-  <h2>Accounts</h2>
-  <div class="card">
-    {% for a in activas %}
-    <div class="row acct">
-      <div>
-        <div class="name">{{ a.label }}</div>
-        <div class="mail">{{ a.email }}</div>
-        {% if a.last_error %}
-          <div class="err">{{ a.last_error }}</div>
-        {% elif a.last_sync %}
-          <div class="meta">last read: {{ a_local(a.last_sync, "%d/%m %H:%M") }}</div>
-        {% else %}
-          <div class="meta">not read yet</div>
-        {% endif %}
-      </div>
-      <form method="post" action="/account/{{ a.id }}/disconnect">
-        <button class="ghost">disconnect</button>
-      </form>
-    </div>
-    {% endfor %}
-    <form method="post" action="/connect" class="row connect">
-      <input name="label" placeholder="Short name (e.g. Work)" required>
-      <button>Connect account</button>
-    </form>
-  </div>
-  <p class="note">
-    Connecting opens your browser. Google will warn that the app is not verified —
-    that is expected. Continue via "Advanced".
-  </p>
-
-  <h2>{% if settings.simulation %}What it would do{% else %}Waiting to be applied{% endif %}</h2>
-  <div class="card">
-    {% if ops %}
-      <ul class="plan">
-        {% for op in ops %}
-        <li>
-          <span class="tag {{ op.action }}">{{ {'create':'create','update':'move','delete':'delete'}[op.action] }}</span>
-          <span class="title">{{ op.title or '(no title)' }}</span>
-          <span class="arrow">{{ op['from'] }} → {{ op['to'] }}</span>
-        </li>
-        {% endfor %}
-      </ul>
-      {% if ops_total > ops|length %}
-        <div class="more">and {{ ops_total - ops|length }} more…</div>
-      {% endif %}
-    {% else %}
-      <div class="empty">Up to date. Nothing to do.</div>
-    {% endif %}
-  </div>
-
-  {% if skipped %}
-  <details style="margin-top:10px">
-    <summary>{{ skipped_total }} events skipped, and why</summary>
-    <ul class="skiplist">
-      {% for label, title, reason in skipped %}
-      <li><span class="who">{{ label }}</span> · {{ title or '(no title)' }} — {{ reason }}</li>
       {% endfor %}
-    </ul>
-  </details>
-  {% endif %}
-
-  <form method="post" action="/sync" style="margin-top:12px; display:flex; align-items:center; gap:14px">
-    <button>Sync now</button>
-    <label class="check" style="font-size:12px; color:var(--dim)">
-      <input type="checkbox" name="full"> full read (slower)
-    </label>
-  </form>
-
-  <form method="post" action="/settings">
-    <h2>Settings</h2>
-    <div class="card">
-      <div class="row">
-        <label class="check">
-          <input type="checkbox" name="simulation" {% if settings.simulation %}checked{% endif %}>
-          <span>
-            Dry run
-            <span class="hint">Works everything out but writes to no calendar.
-            Only uncheck it once the plan above looks right.</span>
-          </span>
-        </label>
-      </div>
-
-      {% if activas|length > 1 %}
-      <div class="row">
-        <div class="rowtitle">Directions and detail</div>
-        <p class="hint" style="margin:-4px 0 14px">
-          One line per direction. What shows depends on where you are looking from:
-          you can see a client's events in full detail in your work calendar, and the
-          same ones as "Work" in your personal one.
-        </p>
-        <table class="dirs">
-          <tr>
-            <th></th><th>direction</th><th>what you see</th><th>label</th>
-            <th class="mid">visible<br>to others</th>
-          </tr>
-          {% for s in activas %}{% for t in activas %}{% if s.id != t.id %}
-          {% set key = s.id|string + '|' + t.id|string %}
-          {% set cfg = settings.detail_pairs.get(key, {'mode': 'busy', 'label': '', 'share': False}) %}
-          <tr>
-            <td><input type="checkbox" name="pair_{{ s.id }}_{{ t.id }}"
-                  {% if settings.pairs.get(key, True) %}checked{% endif %}></td>
-            <td class="dir"><b>{{ s.label }}</b> <span class="na">→</span> {{ t.label }}</td>
-            <td>
-              <select name="mode_{{ s.id }}_{{ t.id }}">
-                <option value="busy"   {% if cfg.mode == 'busy' %}selected{% endif %}>Just "{{ settings.busy_word }} ({{ s.label }})"</option>
-                <option value="title"  {% if cfg.mode == 'title' %}selected{% endif %}>Full detail</option>
-                <option value="custom" {% if cfg.mode == 'custom' %}selected{% endif %}>Fixed label →</option>
-              </select>
-            </td>
-            <td><input name="label_{{ s.id }}_{{ t.id }}" value="{{ cfg.label or '' }}"
-                       placeholder="Work" size="8"></td>
-            <td class="mid"><input type="checkbox" name="share_{{ s.id }}_{{ t.id }}"
-                  {% if cfg.share %}checked{% endif %}></td>
-          </tr>
-          {% endif %}{% endfor %}{% endfor %}
-        </table>
-        <p class="hint" style="margin-top:12px">
-          <b>Full detail</b> copies the title, location, meeting link and guest list.
-          <b>Fixed label</b> uses the word in the next column and reveals nothing else.
-        </p>
-        <p class="hint" style="margin-top:8px">
-          <b>Visible to others</b> decides what <i>everyone else</i> sees in the target
-          calendar. Off, they see a titleless "Busy" block even when you see full detail.
-          On, they see it like any other event of yours in that account — useful when the
-          other calendar belongs to a client or project of the same organisation.
-        </p>
-        <p class="hint" style="margin-top:8px">
-          This table applies to your <i>real meetings</i> only. Protected blocks are not
-          mirrors — each one is created directly in all three calendars — so what others
-          see of them is set by <b>name visible</b> on the block itself, further down.
-        </p>
-      </div>
-
-      <div class="row">
-        <div class="detail-row" style="margin-top:0">
-          <span class="who">Busy word</span>
-          <input name="busy_word" value="{{ settings.busy_word }}" size="10">
-          <span class="hint" style="margin:0">reads "{{ settings.busy_word }} ({{ activas[0].label }})"</span>
-        </div>
-        <div class="detail-row">
-          <span class="who">Busy block color</span>
-          <span class="paleta">
-            {% for cid, nombre, hex in colores %}
-            <label class="chip" title="{{ nombre }}">
-              <input type="radio" name="mirror_color" value="{{ cid }}"
-                     {% if cid == settings.mirror_color %}checked{% endif %}>
-              <span style="background: {{ hex }}"></span>
-            </label>
-            {% endfor %}
-          </span>
-          <span class="hint" style="margin:0">grey turns them into background noise</span>
-        </div>
-        <p class="hint" style="margin-top:10px">
-          Every protected block lives in one account, which you pick in its own row
-          below. Move or delete the block <b>there</b> and CalSync follows you, pushing
-          the change to the other accounts. Editing a copy does nothing: it gets
-          recalculated.
-        </p>
-      </div>
-
-      <div class="row">
-        <div class="rowtitle">What other people read</div>
-        <p class="hint" style="margin:-4px 0 12px">
-          The description your colleagues see when a direction is marked visible. On
-          private events Google shows the description to nobody, so this only applies to
-          what you chose to share.
-        </p>
-        <div class="notas">
-          <label>on "{{ settings.busy_word }}" blocks
-            <textarea name="mirror_note" rows="4">{{ settings.mirror_note }}</textarea></label>
-          <label>on protected blocks
-            <textarea name="habit_note" rows="4">{{ settings.habit_note }}</textarea></label>
-        </div>
-      </div>
-      {% endif %}
-
-      <div class="row">
-        <div class="rowtitle">Which events do NOT block time</div>
-        {% set r = settings.rules %}
-        <div class="stack">
-          <label class="check"><input type="checkbox" name="skip_transparent" {% if r.skip_transparent %}checked{% endif %}> ones marked "Free" in Google</label>
-          <label class="check"><input type="checkbox" name="skip_all_day" {% if r.skip_all_day %}checked{% endif %}> all-day events</label>
-          <label class="check"><input type="checkbox" name="skip_declined" {% if r.skip_declined %}checked{% endif %}> invitations I declined</label>
-          <label class="check"><input type="checkbox" name="skip_needs_action" {% if r.skip_needs_action %}checked{% endif %}> invitations I have not answered</label>
-        </div>
-        <div class="fields">
-          <label>Tags that exclude (comma separated)
-            <input name="skip_tags" value="{{ r.skip_tags|join(', ') }}"></label>
-          <label>Keywords that exclude
-            <input name="skip_keywords" value="{{ r.skip_keywords|join(', ') }}"></label>
-        </div>
-      </div>
     </div>
-    <div class="guardar">
-      <button>Save settings</button>
-      <span class="pendiente">you have unsaved changes</span>
-    </div>
-  </form>
-
-  <h2>Protected blocks</h2>
-  {% if papelera %}
-  <div class="undo">
-    <span class="grow">Deleted <b>{{ papelera.name }}</b> and its blocks from your calendars.</span>
-    <form method="post" action="/trash/restore"><button>Undo</button></form>
-    <form method="post" action="/trash/dismiss"><button class="link">dismiss</button></form>
+    {% else %}
+    <div class="limpio">All clear. No meetings overlap across accounts, none fall inside your
+      protected blocks, and every block found a slot.</div>
+    {% endif %}
   </div>
-  {% endif %}
-  <form method="post" action="/blocks">
-    <div class="card bloques">
-      {% for h in habits %}
-      <div class="row habit {% if not h.enabled %}apagado{% endif %}">
-        <div class="habit-head">
-          <label class="check" title="turn on or off">
-            <input type="checkbox" name="h_{{ h.id }}_enabled" {% if h.enabled %}checked{% endif %}>
-          </label>
-          <input class="hname" name="h_{{ h.id }}_name" value="{{ h.name }}">
-          <select name="h_{{ h.id }}_kind">
-            <option value="flexible" {% if h.kind == 'flexible' %}selected{% endif %}>finds a slot</option>
-            <option value="fixed" {% if h.kind == 'fixed' %}selected{% endif %}>fixed time</option>
-          </select>
-          <label class="check tiny"
-                 title="On: everyone who can see these calendars reads the block's name. Off: they see a titleless private block.">
-            <input type="checkbox" name="h_{{ h.id }}_share" {% if h.share %}checked{% endif %}>
-            name visible
-          </label>
-          {# Apagado por defecto: un bloque que ya pasó es el registro de lo que
-             hiciste, y borrarlo por su cuenta se siente como perder datos. #}
-          <label class="check tiny" title="delete each block once it is over">
-            <input type="checkbox" name="h_{{ h.id }}_cleanup"
-                   {% if h.cleanup_past %}checked{% endif %}>
-            clear when done
-          </label>
-          <button class="trash" type="submit" formmethod="post"
-                  formaction="/block/{{ h.id }}/delete"
-                  title="Delete &quot;{{ h.name }}&quot; — you can undo it">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
-                 stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-              <path d="M4 7h16M10 4h4M9 7v12M15 7v12M6 7l1 13h10l1-13"/>
-            </svg>
-          </button>
+
+  <div class="enc">
+    <div class="titulo-sec">Your week</div>
+    <p class="sub-sec">Protected blocks and real meetings on one grid — the three accounts at
+      once, which no single Google Calendar can show you.</p>
+  </div>
+
+  <div class="cal-barra">
+    <span class="flechas">
+      <a href="/?week={{ vista.offset - 1 }}&amp;meetings={{ 1 if vista.con_reuniones else 0 }}#dashboard"
+         title="Previous week" aria-label="Previous week">‹</a>
+      <a href="/?week={{ vista.offset + 1 }}&amp;meetings={{ 1 if vista.con_reuniones else 0 }}#dashboard"
+         title="Next week" aria-label="Next week">›</a>
+    </span>
+    <a class="hoy-btn" href="/?week=0&amp;meetings={{ 1 if vista.con_reuniones else 0 }}#dashboard">Today</a>
+    <span class="rango">{{ vista.etiqueta }}</span>
+    <a class="hoy-btn" href="/?week={{ vista.offset }}&amp;meetings={{ 0 if vista.con_reuniones else 1 }}#dashboard">
+      {{ 'Hide my meetings' if vista.con_reuniones else 'Show my meetings' }}</a>
+    <span class="leyenda">
+      {% for nombre, color in vista.leyenda %}
+      <span><i style="background:{{ color or '#4285F4' }}"></i>{{ nombre }}</span>
+      {% endfor %}
+      {% if vista.con_reuniones %}<span><i style="background:var(--tinta-3)"></i>Meetings</span>{% endif %}
+    </span>
+  </div>
+
+  {% if vista.vacia %}
+  <div class="cal-marco"><div class="cal-vacio">
+    {% if vista.mas_alla %}Nothing planned yet. CalSync places blocks {{ horizonte }} days ahead,
+      so this week fills in as it gets closer.
+    {% else %}No blocks or meetings this week.{% endif %}
+  </div></div>
+  {% else %}
+  <div class="cal-marco">
+    <div class="cal-scroll" style="max-height:{{ vista.alto }}px" data-foco="{{ vista.foco_px }}">
+      <div class="cal">
+        <div class="cal-cab"><div></div>
+          {% for col in vista.columnas %}
+          <div class="dia{{ ' es-hoy' if col.es_hoy }}">
+            <div class="nom">{{ col.nombre }}</div><div class="num">{{ col.numero }}</div>
+          </div>
+          {% endfor %}
         </div>
-
-        <div class="habit-grid">
-          <label>ideal length
-            <select name="h_{{ h.id }}_ideal">
-              {% for minutos, etiqueta in opciones_duracion(h.ideal_minutes) %}
-              <option value="{{ minutos }}" {% if minutos == h.ideal_minutes %}selected{% endif %}>{{ etiqueta }}</option>
-              {% endfor %}
-            </select></label>
-
-          <label>shortest acceptable
-            <select name="h_{{ h.id }}_min" {% if h.kind == 'fixed' %}disabled{% endif %}>
-              {% for minutos, etiqueta in opciones_duracion(h.min_minutes) %}
-              <option value="{{ minutos }}" {% if minutos == h.min_minutes %}selected{% endif %}>{{ etiqueta }}</option>
-              {% endfor %}
-            </select></label>
-
-          <label>from
-            <select name="h_{{ h.id }}_w0">
-              {% for hora in opciones_hora(h.window_start) %}
-              <option value="{{ hora }}" {% if hora == h.window_start %}selected{% endif %}>{{ hora }}</option>
-              {% endfor %}
-            </select></label>
-
-          <label>until
-            <select name="h_{{ h.id }}_w1">
-              {% for hora in opciones_hora(h.window_end) %}
-              <option value="{{ hora }}" {% if hora == h.window_end %}selected{% endif %}>{{ hora }}</option>
-              {% endfor %}
-            </select></label>
-
-          <label>preferred time
-            <select name="h_{{ h.id }}_pref">
-              <option value="" {% if not h.preferred_start %}selected{% endif %}>wherever it fits</option>
-              {% for hora in opciones_hora(h.preferred_start) %}
-              <option value="{{ hora }}" {% if hora == h.preferred_start %}selected{% endif %}>{{ hora }}</option>
-              {% endfor %}
-            </select></label>
-
-          <label>how often
-            <select name="h_{{ h.id }}_per_week">
-              <option value="0" {% if h.per_week == 0 %}selected{% endif %}>every day checked</option>
-              {% for n in range(1, 8) %}
-              <option value="{{ n }}" {% if h.per_week == n %}selected{% endif %}>
-                {{ n }}{{ ' time' if n == 1 else ' times' }} per week</option>
-              {% endfor %}
-            </select></label>
-
-          {# Swatches instead of a list of names: nobody knows what "Sage" is. #}
-          <label>color
-            <span class="paleta">
-              {% for cid, nombre, hex in colores %}
-              <label class="chip" title="{{ nombre }}">
-                <input type="radio" name="h_{{ h.id }}_color" value="{{ cid }}"
-                       {% if cid == h.color_id %}checked{% endif %}>
-                <span style="background: {{ hex }}"></span>
-              </label>
-              {% endfor %}
-            </span></label>
-
-          {# The dropdown always shows the real account, never "the general one":
-             two options meaning the same thing only cause doubt. #}
-          <label>lives in
-            <select name="h_{{ h.id }}_home">
-              {% for a in activas %}
-              <option value="{{ a.id }}"
-                {% if a.id == (origen_de(h).id if origen_de(h) else None) %}selected{% endif %}>
-                {{ a.label }}</option>
-              {% endfor %}
-            </select></label>
-        </div>
-
-        <div class="habit-days">
-          {% set marcados = h.days.split(',') %}
-          {% for n in range(7) %}
-          <label class="day">
-            <input type="checkbox" name="h_{{ h.id }}_day_{{ n }}"
-                   {% if n|string in marcados %}checked{% endif %}>
-            {{ dias[n] }}
-          </label>
+        <div class="cal-cuerpo">
+          <div class="gutter">
+            {% for h, etiqueta, _top in vista.horas %}
+            <div class="h"><span>{% if h %}{{ etiqueta }}{% endif %}</span></div>
+            {% endfor %}
+          </div>
+          {% for col in vista.columnas %}
+          <div class="col{{ ' es-hoy' if col.es_hoy }}">
+            {% for _h, _e, _t in vista.horas %}<div class="h"></div>{% endfor %}
+            {% for p in col.piezas %}
+            <div class="ev{{ ' reunion' if p.tipo == 'reunion' }}{{ ' corto' if p.corto }}"
+                 style="top:{{ p.top }}px;height:{{ p.alto }}px;left:calc({{ p.izq }}% + 2px);
+                        width:calc({{ p.ancho }}% - 4px)
+                        {%- if p.tipo == 'bloque' %};background:{{ p.color or '#4285F4' }};color:#fff{% endif %}"
+                 title="{{ p.titulo }}{% if p.cuenta %} · {{ p.cuenta }}{% endif %} · {{ p.rango }}">
+              <span class="t">{{ p.titulo }}</span><span class="r">{{ p.rango }}</span>
+            </div>
+            {% endfor %}
+            {% if col.es_hoy and vista.ahora_px is not none %}
+            <div class="linea-ahora" style="top:{{ vista.ahora_px }}px"></div>
+            {% endif %}
+          </div>
           {% endfor %}
         </div>
       </div>
-      {% endfor %}
     </div>
+  </div>
+  <p class="cal-pie">Opens at {{ vista.foco }}, where this week actually starts — scroll for the
+    rest of the day. Blocks are planned {{ horizonte }} days ahead.</p>
+  {% endif %}
 
-    <div class="guardar">
-      <button>Save blocks</button>
-      <span class="pendiente">you have unsaved changes</span>
-    </div>
-    <div style="margin-top:10px">
-      <span class="hint" style="display:inline">
-"Finds a slot" gives up its time first and its length second, down to the shortest
-        acceptable · "fixed time" always takes its hours · the window is picked in half
-        hours, but a block can land at 13:15 if that is where it fits
-      </span>
-    </div>
-    <div style="margin-top:8px">
-      <span class="hint" style="display:inline">
-        <b>name visible</b> is the only thing that hides a block. A block is created
-        directly in all three calendars, so it is not a mirror of anything and the
-        table above does not apply to it — that table only covers your real meetings.
-        Uncheck it and colleagues in every account see a private block with no name;
-        you still see it in full.
-      </span>
-    </div>
-  </form>
+  <div class="tarjeta"><div class="cuerpo">
+    <form method="post" action="/sync"
+          style="display:flex;gap:13px;align-items:center;flex-wrap:wrap">
+      <button class="btn fuerte">Sync now</button>
+      <label style="display:flex;gap:7px;align-items:center;font-size:12.5px;color:var(--tinta-2)">
+        <input type="checkbox" name="full"> full read (slower)</label>
+      {% if last_cycle %}
+      <span style="margin-left:auto;font-size:12px;color:var(--tinta-3)">
+        last cycle: {{ last_cycle.eventos_leidos }} read ·
+        {{ last_cycle.creados + last_cycle.movidos + last_cycle.borrados }} changes ·
+        {{ last_cycle.errores }} errors</span>
+      {% endif %}
+    </form>
 
-  <form method="post" action="/blocks/new" class="nuevo">
-    <input name="nombre" placeholder="Name of the new block (e.g. 🧘 Meditation)" required>
-    <button class="ghost">Add block</button>
-  </form>
+    <details class="plegable">
+      <summary>Waiting to be applied — {% if ops_total %}{{ ops_total }} pending
+        {% else %}nothing pending{% endif %}</summary>
+      <div class="adentro">
+        {% if ops %}
+          <div class="scrollable">
+          {% for op in ops %}<div class="fila-aviso"><span class="que">{{ describe(op) }}</span></div>{% endfor %}
+          </div>
+          {% if ops_total > ops | length %}
+          <p class="nota-pie" style="margin-top:8px">and {{ ops_total - ops|length }} more.</p>{% endif %}
+        {% else %}Up to date. Nothing to do.{% endif %}
+      </div>
+    </details>
 
-  <h2>Where your blocks land</h2>
-  <div class="card">
-    {% if agenda %}
-    <div class="agenda">
-      {% for dia in agenda %}
-      <div class="agenda-dia">
-        <div class="agenda-fecha">{{ dia.etiqueta }}</div>
-        {% for b in dia.bloques %}
-        <div class="agenda-bloque">
-          <span class="hora">{{ b.desde }}</span>
-          <span class="nom">{{ b.name }}</span>
-          <span class="dur">{{ b.minutos }}′</span>
+    <details class="plegable">
+      <summary>{{ skipped_total }} event{{ '' if skipped_total == 1 else 's' }} skipped, and why</summary>
+      <div class="adentro">
+        {% if skipped %}
+          <div class="scrollable">
+          {% for cuenta, titulo, razon in skipped %}
+          <div class="fila-aviso"><span class="cuando">{{ cuenta }}</span>
+            <span class="que">{{ titulo or '(no title)' }}<br>
+              <span class="det">{{ razon }}</span></span></div>
+          {% endfor %}
+          </div>
+        {% else %}Nothing was skipped.{% endif %}
+      </div>
+    </details>
+
+    <details class="plegable">
+      <summary>Activity log — last {{ log | length }} entries</summary>
+      <div class="adentro log">
+        {% for l in log %}
+        <div class="l {{ l.level }}">
+          <span class="ts">{{ a_local(l.ts, '%d/%m %H:%M') }}</span>
+          <span class="ac">{{ acciones.get(l.action, l.action) }}</span>
+          <span class="de">{{ l.detail }}</span>
         </div>
         {% endfor %}
       </div>
-      {% endfor %}
+    </details>
+  </div></div>
+</section>
+
+{# ======================= BLOCKS ======================= #}
+<section id="p-blocks">
+  <div class="enc">
+    <div class="cabeza-sec">
+      <div class="titulo-sec">Blocks</div>
+      <form method="post" action="/blocks/new"
+            style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="text" name="nombre" placeholder="Name of the new block (e.g. 🧘 Meditation)"
+               required style="min-width:230px">
+        <button class="btn fuerte">Add block</button>
+      </form>
     </div>
-    {% else %}
-      <div class="empty">No blocks placed yet. Sync to work them out.</div>
-    {% endif %}
-  </div>
-  <p class="note">Planned {{ horizonte }} days ahead; the next 7 are shown here.</p>
-
-  <h2>Activity log</h2>
-  <div class="card">
-    <ul class="log">
-      {% for row in log %}
-      <li class="{{ row.level }}">
-        <span class="ts">{{ a_local(row.ts) }}</span>
-        <span class="act">{{ acciones.get(row.action, row.action) }}</span>
-        <span class="det">{{ row.detail }}</span>
-      </li>
-      {% endfor %}
-    </ul>
+    <p class="sub-sec">Time CalSync protects for you across all three calendars.
+      Edit a block and it moves everywhere.</p>
   </div>
 
-  <h2>Danger zone</h2>
-  <details class="card panic">
-    <summary>Delete everything CalSync created</summary>
-    <p>
-      Deletes from every account the events CalSync created — busy blocks and protected
-      blocks, on any date — leaving your calendars exactly as they were. Your real events
-      are untouched: the engine can only delete what carries its own marker.
-    </p>
-    <p>
-      When it finishes it is left in <b>dry run</b>, so nothing is recreated until you
-      say so. If something could not be deleted the log will say which: run it again, and
-      nothing gets duplicated.
-    </p>
-    <p>
-      If the dashboard is unresponsive there is an equivalent cleanup outside the app:
-      double click <code>cleanup.command</code> with CalSync closed.
-    </p>
-    <form method="post" action="/wipe">
-      <input name="confirmacion" placeholder="type DELETE">
-      <button class="danger">Confirm</button>
+  {% if papelera %}
+  <div class="undo">
+    <span class="grow">Deleted <b>{{ papelera.name }}</b> and its blocks from your calendars.</span>
+    <form method="post" action="/trash/restore"><button class="btn">Undo</button></form>
+    <form method="post" action="/trash/dismiss"><button class="btn">Dismiss</button></form>
+  </div>
+  {% endif %}
+
+  <div class="tarjeta">
+    {% for h in habits %}
+    {% set origen = origen_de(h) %}
+    {% set fijo = h.kind == 'fixed' %}
+    <div class="bloq{{ ' apagado' if not h.enabled }}" id="bl-{{ h.id }}">
+      <div class="bloq-cab">
+        <span class="swatch" style="background:{{ colores_hex.get(h.color_id or '', '#4285F4') }}"></span>
+        <span class="nom">{{ h.name.strip() }}</span>
+        <span class="chip{{ ' on' if h.enabled }}">{{ 'on' if h.enabled else 'off' }}</span>
+        <span class="chip">{{ 'fixed time' if fijo else 'finds a slot' }}</span>
+        <span class="chip">{{ 'name visible' if h.share else 'private' }}</span>
+        <span style="margin-left:auto;display:flex;gap:7px">
+          <button class="btn" type="button" data-editar="{{ h.id }}">Edit</button>
+          <form method="post" action="/block/{{ h.id }}/delete" class="enlinea">
+            <button class="btn" title="Delete “{{ h.name.strip() }}” — you can undo it">Delete</button>
+          </form>
+        </span>
+      </div>
+      <div class="bloq-datos">
+        <span>window <b>{{ h.window_start }}–{{ h.window_end }}</b></span>
+        <span>ideal <b>{{ h.ideal_minutes }}m</b> · min <b>{{ h.min_minutes }}m</b></span>
+        <span>{{ 'starts' if fijo else 'preferred' }} <b>{{ h.preferred_start or '—' }}</b></span>
+        <span>{% if h.per_week %}<b>{{ h.per_week }}×</b> per week{% else %}every valid day{% endif %}</span>
+        <span>lives in <b>{{ origen.label if origen else '—' }}</b></span>
+      </div>
+
+      <form method="post" action="/block/{{ h.id }}" class="editor" id="ed-{{ h.id }}" hidden>
+        <div class="rejilla-campos">
+          <label class="campito">Name
+            <input type="text" name="name" value="{{ h.name }}"></label>
+          <label class="campito">Type
+            <select name="kind" data-tipo>
+              <option value="flexible" {{ 'selected' if not fijo }}>finds a slot</option>
+              <option value="fixed" {{ 'selected' if fijo }}>fixed time</option>
+            </select></label>
+          <label class="campito{{ ' inhabil' if fijo }}" data-solo-flex>From
+            <select name="w0" {{ 'disabled' if fijo }}>
+              {% for t in opciones_hora(h.window_start) %}
+              <option {{ 'selected' if t == h.window_start }}>{{ t }}</option>{% endfor %}
+            </select></label>
+          <label class="campito{{ ' inhabil' if fijo }}" data-solo-flex>Until
+            <select name="w1" {{ 'disabled' if fijo }}>
+              {% for t in opciones_hora(h.window_end) %}
+              <option {{ 'selected' if t == h.window_end }}>{{ t }}</option>{% endfor %}
+            </select></label>
+          <label class="campito"><span data-et-pref>{{ 'Start time' if fijo else 'Preferred time' }}</span>
+            <select name="pref">
+              <option value="">—</option>
+              {% for t in opciones_hora(h.preferred_start) %}
+              <option {{ 'selected' if t == h.preferred_start }}>{{ t }}</option>{% endfor %}
+            </select></label>
+          <label class="campito">Ideal length
+            <select name="ideal">
+              {% for m, et in opciones_duracion(h.ideal_minutes) %}
+              <option value="{{ m }}" {{ 'selected' if m == h.ideal_minutes }}>{{ et }}</option>{% endfor %}
+            </select></label>
+          <label class="campito{{ ' inhabil' if fijo }}" data-solo-flex>Shortest ok
+            <select name="min" {{ 'disabled' if fijo }}>
+              {% for m, et in opciones_duracion(h.min_minutes) %}
+              <option value="{{ m }}" {{ 'selected' if m == h.min_minutes }}>{{ et }}</option>{% endfor %}
+            </select></label>
+          <label class="campito">Times per week
+            <select name="per_week">
+              {% for n in range(8) %}
+              <option value="{{ n }}" {{ 'selected' if n == h.per_week }}>
+                {{ 'every valid day' if n == 0 else n ~ '×' }}</option>{% endfor %}
+            </select></label>
+          <label class="campito">Lives in
+            <select name="home">
+              {% for a in accounts if a.enabled %}
+              <option value="{{ a.id }}"
+                {{ 'selected' if origen and a.id == origen.id }}>{{ a.label }}</option>{% endfor %}
+            </select></label>
+        </div>
+
+        <div class="campo apilado" style="border:0;padding:12px 0 0;gap:7px">
+          <div class="izq"><div class="et" style="font-size:10.5px;letter-spacing:.05em;
+            text-transform:uppercase;color:var(--tinta-3);font-weight:650">Color</div></div>
+          <div class="der paleta" style="justify-content:flex-start">
+            {% for cid, nombre, hexa in colores %}
+            <label title="{{ nombre }}">
+              <input type="radio" name="color" value="{{ cid }}"
+                     {{ 'checked' if cid == (h.color_id or '') }}>
+              <span style="background:{{ hexa }}"></span></label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="dias">
+          {% set marcados = (h.days or '').split(',') %}
+          {% for n in range(7) %}
+          <label class="{{ 'marcado' if n|string in marcados }}">
+            <input type="checkbox" name="day_{{ n }}" {{ 'checked' if n|string in marcados }}>
+            {{ dias[n] }}</label>
+          {% endfor %}
+        </div>
+
+        <div class="interruptores">
+          <label class="palanca"><input type="checkbox" name="enabled"
+            {{ 'checked' if h.enabled }} data-palanca>
+            <span class="riel"></span><span class="et">{{ 'on' if h.enabled else 'off' }}</span></label>
+          <label class="simple"><input type="checkbox" name="share" {{ 'checked' if h.share }}>
+            name visible to others</label>
+          <label class="simple"><input type="checkbox" name="cleanup"
+            {{ 'checked' if h.cleanup_past }}> clear when done</label>
+        </div>
+
+        <div class="pie">
+          <button class="btn fuerte">Save changes</button>
+          <button class="btn" type="button" data-cerrar="{{ h.id }}">Cancel</button>
+          <span class="sin-guardar" hidden>unsaved changes</span>
+          <span class="ay" data-ay>{% if fijo %}“Fixed time” always takes its hours, whatever
+            else is there. It does not stop your other blocks landing inside it.
+            {% else %}“Finds a slot” gives up its time first and its length second, down to the
+            shortest acceptable.{% endif %}</span>
+        </div>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+
+  <p class="nota-pie">Every protected block lives in one account, which you pick in its own row.
+    Move or delete the block <b>there</b> and CalSync follows you, pushing the change to the
+    other accounts. Editing a copy does nothing: it gets recalculated.</p>
+  <p class="nota-pie">A block is created directly in all three calendars, so it is not a mirror
+    and the Sharing table does not apply to it — <b>name visible to others</b> on the block
+    itself is what colleagues see.</p>
+</section>
+
+{# ======================= ACCOUNTS ======================= #}
+<section id="p-accounts">
+  <div class="enc">
+    <div class="titulo-sec">Accounts</div>
+    <p class="sub-sec">Google only exposes each account's primary calendar. Every token stays
+      on this Mac, in your own home folder.</p>
+  </div>
+  <div class="tarjeta">
+    {% for a in accounts if a.enabled %}
+    <div class="cuenta-fila">
+      <div class="izq"><div class="nom">{{ a.label }}</div><div class="mail">{{ a.email }}</div></div>
+      {% if a.last_error %}<span class="mal">{{ a.last_error[:70] }}</span>
+      {% else %}<span class="cuando">last read {{ a_local(a.last_sync, '%d/%m %H:%M') }}</span>{% endif %}
+      <form method="post" action="/account/{{ a.id }}/disconnect">
+        <button class="btn">Disconnect</button></form>
+    </div>
+    {% endfor %}
+    <form method="post" action="/connect" class="cuenta-fila">
+      <input type="text" name="label" placeholder="Short name (e.g. Work)" style="flex:1 1 220px">
+      <button class="btn fuerte">Connect account</button>
     </form>
-  </details>
+  </div>
+  <p class="nota-pie">Connecting opens your browser. Google will warn that the app is not
+    verified — that is expected. Continue via <b>"Advanced"</b>.</p>
+</section>
 
-  <footer>
-    {% if last_cycle %}
-      last cycle {{ a_local(last_cycle.fin, "%H:%M") }} · {{ last_cycle.modo }} ·
-      {{ last_cycle.eventos_leidos }} read ·
-      {{ last_cycle.creados }} created ·
-      {{ last_cycle.movidos }} moved ·
-      {{ last_cycle.borrados }} deleted
-      {% if last_cycle.errores %} · <span class="bad">{{ last_cycle.errores }} errors</span>{% endif %}
-    {% else %}
-      no cycles yet
-    {% endif %}
-  </footer>
+{# ======================= SHARING ======================= #}
+<section id="p-sharing">
+  <form method="post" action="/settings/sharing" id="f-sharing"
+        style="display:flex;flex-direction:column;gap:13px">
+    <div class="enc">
+      <div class="titulo-sec">Sharing</div>
+      <p class="sub-sec">What each calendar reveals to the others, and what your colleagues
+        can read.</p>
+    </div>
+
+    <div class="tarjeta"><div class="tabla-envoltura"><table class="pares">
+      <tr><th>Direction</th><th>What it shows</th><th>Label</th>
+        <th class="centro">Visible to others</th></tr>
+      {% for o in accounts if o.enabled %}{% for d in accounts if d.enabled and d.id != o.id %}
+      {% set cfg = settings.detail_pairs.get(o.id ~ '|' ~ d.id, {'mode': 'busy', 'label': '', 'share': False}) %}
+      <tr data-par>
+        <td><b>{{ o.label }}</b><span class="flecha">→</span>{{ d.label }}
+          <input type="hidden" name="pair_{{ o.id }}_{{ d.id }}" value="on"></td>
+        <td><select name="mode_{{ o.id }}_{{ d.id }}" data-modo>
+          <option value="busy" {{ 'selected' if cfg.mode == 'busy' }}>Busy only</option>
+          <option value="title" {{ 'selected' if cfg.mode == 'title' }}>Full detail</option>
+          <option value="custom" {{ 'selected' if cfg.mode == 'custom' }}>Fixed label</option>
+        </select></td>
+        <td><input type="text" name="label_{{ o.id }}_{{ d.id }}" data-etiqueta size="9"
+             value="{{ cfg.label or '' }}" placeholder="{{ 'word' if cfg.mode == 'custom' else '—' }}"
+             {{ '' if cfg.mode == 'custom' else 'disabled' }}></td>
+        <td class="centro"><input type="checkbox" name="share_{{ o.id }}_{{ d.id }}"
+             {{ 'checked' if cfg.share }}></td>
+      </tr>
+      {% endfor %}{% endfor %}
+    </table></div></div>
+
+    <p class="nota-pie"><b>Full detail</b> copies the title, location, meeting link and guest
+      list. <b>Fixed label</b> uses the word in the next column and reveals nothing else.</p>
+    <p class="nota-pie"><b>Visible to others</b> decides what <i>everyone else</i> sees in the
+      target calendar. Off, they see a titleless "Busy" block even when you see full detail.
+      On, they see it like any other event of yours in that account — useful when the other
+      calendar belongs to a client or project of the same organization.</p>
+    <p class="nota-pie">This table applies to your <i>real meetings</i> only. Protected blocks
+      are not mirrors — each one is created directly in all three calendars — so what others
+      see of them is set by <b>name visible to others</b> on the block itself, under Blocks.</p>
+
+    <div class="bloque">
+      <div class="enc">
+        <div class="titulo-sec chico">How busy blocks look</div>
+        <p class="sub-sec">The wording and color CalSync uses when it writes a busy block.</p>
+      </div>
+      <div class="tarjeta">
+        <div class="campo">
+          <div class="izq"><div class="et">Busy word</div>
+            <div class="ay">Reads "{{ settings.busy_word }} ({{ (accounts|selectattr('enabled')|list|first).label
+              if accounts|selectattr('enabled')|list else 'Work' }})" in the other calendar.</div></div>
+          <div class="der"><input type="text" name="busy_word" value="{{ settings.busy_word }}"
+            size="12"></div>
+        </div>
+        <div class="campo">
+          <div class="izq"><div class="et">Busy block color</div>
+            <div class="ay">Grey turns them into background noise, so your real meetings
+              stand out.</div></div>
+          <div class="der paleta">
+            {% for cid, nombre, hexa in colores %}
+            <label title="{{ nombre }}">
+              <input type="radio" name="mirror_color" value="{{ cid }}"
+                     {{ 'checked' if cid == settings.mirror_color }}>
+              <span style="background:{{ hexa }}"></span></label>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bloque">
+      <div class="enc">
+        <div class="titulo-sec chico">What other people read</div>
+        <p class="sub-sec">The description your colleagues see when a direction is marked
+          visible. On private events Google shows the description to nobody, so this only
+          applies to what you chose to share.</p>
+      </div>
+      <div class="tarjeta">
+        <div class="campo apilado">
+          <div class="izq"><div class="et">Note on busy blocks</div>
+            <div class="ay">On the "{{ settings.busy_word }}" blocks mirrored from another
+              calendar.</div></div>
+          <div class="der"><textarea name="mirror_note" placeholder="Blocked — commitment in another calendar.&#10;&#10;Kept in sync automatically. Please schedule around it.">{{ settings.mirror_note }}</textarea></div>
+        </div>
+        <div class="campo apilado">
+          <div class="izq"><div class="et">Note on protected blocks</div>
+            <div class="ay">On lunch, reading, exercise and the rest.</div></div>
+          <div class="der"><textarea name="habit_note" placeholder="Blocked — commitment in another calendar.&#10;&#10;If you need this time, please message me instead of booking over it.">{{ settings.habit_note }}</textarea></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:center;margin-top:4px">
+      <button class="btn fuerte">Save sharing</button>
+      <span class="sin-guardar" hidden>unsaved changes</span>
+    </div>
+  </form>
+</section>
+
+{# ======================= GENERAL ======================= #}
+<section id="p-general">
+  <form method="post" action="/settings/general" id="f-general"
+        style="display:flex;flex-direction:column;gap:13px">
+    <div class="enc">
+      <div class="titulo-sec">General</div>
+      <p class="sub-sec">Which events deserve to block time in your other calendars — and
+        whether CalSync writes to Google at all.</p>
+    </div>
+    <div class="tarjeta">
+      <div class="campo">
+        <div class="izq"><div class="et">Mode</div>
+          <div class="ay">Dry run only writes to the activity log. Live writes to Google.</div></div>
+        <div class="der">
+          <select name="simulation">
+            <option value="" {{ 'selected' if not settings.simulation }}>Live</option>
+            <option value="on" {{ 'selected' if settings.simulation }}>Dry run</option>
+          </select></div>
+      </div>
+    </div>
+
+    <div class="bloque">
+      <div class="enc">
+        <div class="titulo-sec chico">Which events do NOT block time</div>
+        <p class="sub-sec">An event that passes all of these gets mirrored as a busy block in
+          your other calendars.</p>
+      </div>
+      {% set r = settings.rules %}
+      <div class="tarjeta">
+        <div class="campo">
+          <div class="izq"><div class="et">Ones marked "Free" in Google</div>
+            <div class="ay">They do not take your time, so they should not block anyone
+              else's.</div></div>
+          <div class="der"><input type="checkbox" name="skip_transparent"
+            {{ 'checked' if r.skip_transparent }}></div>
+        </div>
+        <div class="campo">
+          <div class="izq"><div class="et">All-day events</div>
+            <div class="ay">A birthday does not stop you having lunch.</div></div>
+          <div class="der"><input type="checkbox" name="skip_all_day"
+            {{ 'checked' if r.skip_all_day }}></div>
+        </div>
+        <div class="campo">
+          <div class="izq"><div class="et">Invitations I declined</div></div>
+          <div class="der"><input type="checkbox" name="skip_declined"
+            {{ 'checked' if r.skip_declined }}></div>
+        </div>
+        <div class="campo">
+          <div class="izq"><div class="et">Invitations I have not answered</div>
+            <div class="ay">Off by default: an unanswered invitation usually still holds the
+              time.</div></div>
+          <div class="der"><input type="checkbox" name="skip_needs_action"
+            {{ 'checked' if r.skip_needs_action }}></div>
+        </div>
+        <div class="campo">
+          <div class="izq"><div class="et">Tags that exclude an event</div>
+            <div class="ay">Comma separated. Put the tag anywhere in the title.</div></div>
+          <div class="der"><input type="text" name="skip_tags"
+            value="{{ r.skip_tags | join(', ') }}" size="16"></div>
+        </div>
+        <div class="campo">
+          <div class="izq"><div class="et">Keywords that exclude an event</div>
+            <div class="ay">Leave empty unless you need it.</div></div>
+          <div class="der"><input type="text" name="skip_keywords"
+            value="{{ r.skip_keywords | join(', ') }}" placeholder="—" size="16"></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:center;margin-top:4px">
+      <button class="btn fuerte">Save general</button>
+      <span class="sin-guardar" hidden>unsaved changes</span>
+    </div>
+  </form>
+</section>
+
+{# ======================= DANGER ZONE ======================= #}
+<section id="p-danger">
+  <div class="enc">
+    <div class="titulo-sec">Danger zone</div>
+    <p class="sub-sec">This removes everything CalSync created, on all dates, in the three
+      calendars. Your own meetings are never touched.</p>
+  </div>
+  <div class="tarjeta peligro-caja">
+    <div class="campo">
+      <div class="izq"><div class="et">Remove everything CalSync created</div>
+        <div class="ay">Every busy block and every protected block. Dry run gets switched on
+          afterwards, so nothing comes back until you turn it off yourself. Type
+          <b>BORRAR</b> to confirm.</div></div>
+      <div class="der">
+        <form method="post" action="/wipe" style="display:flex;gap:7px;align-items:center">
+          <input type="text" name="confirmacion" placeholder="BORRAR" size="10" required>
+          <button class="btn peligro">Remove all</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>
+
+    </main>
+  </div>
 </div>
 
 <script>
-  // --- Mantener la posición del scroll ---------------------------------------
-  // Cada botón hace POST y el navegador vuelve al tope de la página. Guardamos
-  // dónde estabas antes de salir y volvemos ahí al cargar. Esto cubre los tres
-  // casos: guardar, borrar/deshacer, y el refresco automático.
-  var CLAVE = 'calsync-scroll';
+/* Pestañas. Una sola página: el servidor ya mandó todo, así que cambiar de
+   sección es instantáneo y no toca el servidor. La sección viaja en el hash,
+   para que al guardar un formulario se vuelva a donde estabas. */
+(function(){
+  var nav = document.querySelector("nav.lado");
+  var main = document.querySelector("main");
+  var validas = Array.prototype.map.call(nav.querySelectorAll("[data-ir]"),
+    function(b){ return b.dataset.ir; });
 
-  if ('scrollRestoration' in history) {
-    history.scrollRestoration = 'manual';  // que el navegador no compita
-  }
-
-  function guardarPosicion() {
-    try { sessionStorage.setItem(CLAVE, String(window.scrollY)); } catch (e) {}
-  }
-
-  // `pagehide` es más confiable que `beforeunload` y no bloquea la navegación.
-  window.addEventListener('pagehide', guardarPosicion);
-  document.addEventListener('submit', guardarPosicion);
-
-  function restaurarPosicion() {
-    try {
-      var y = sessionStorage.getItem(CLAVE);
-      if (y !== null) { window.scrollTo(0, parseInt(y, 10)); }
-    } catch (e) {}
-  }
-
-  // Dos intentos: uno en cuanto existe el DOM, otro cuando termina de cargar,
-  // porque el alto de la página puede cambiar en el medio.
-  restaurarPosicion();
-  window.addEventListener('load', restaurarPosicion);
-
-  // --- Guardar solo aparece cuando hay algo que guardar ----------------------
-  // Un botón siempre visible no confirma nada. Uno que aparece al cambiar algo
-  // le dice «esto todavía no está aplicado».
-  document.querySelectorAll('form').forEach(function (form) {
-    var aviso = form.querySelector('.guardar');
-    if (!aviso) { return; }
-    ['input', 'change'].forEach(function (evento) {
-      form.addEventListener(evento, function () { aviso.classList.add('sucio'); });
+  function ir(id){
+    if (validas.indexOf(id) === -1) id = "dashboard";
+    Array.prototype.forEach.call(nav.querySelectorAll("[data-ir]"), function(b){
+      b.setAttribute("aria-current", String(b.dataset.ir === id));
     });
+    Array.prototype.forEach.call(main.children, function(s){
+      s.classList.toggle("viva", s.id === "p-" + id);
+    });
+    try { history.replaceState(null, "", "#" + id); } catch (e) {}
+    if (id === "dashboard") encuadra();
+  }
+  Array.prototype.forEach.call(nav.querySelectorAll("[data-ir]"), function(b){
+    b.addEventListener("click", function(){ ir(b.dataset.ir); window.scrollTo(0, 0); });
   });
 
-  function hayCambiosSinGuardar() {
-    return document.querySelector('.guardar.sucio') !== null;
+  /* El calendario cubre el día entero; esto solo decide dónde abre. */
+  function encuadra(){
+    var sc = document.querySelector(".cal-scroll");
+    if (sc) sc.scrollTop = Math.max(0, Number(sc.dataset.foco || 0) - 9);
   }
 
-  // --- Refresco suave cada 60 s ---------------------------------------------
-  setInterval(function () {
-    var editando = document.querySelector('input:focus, select:focus, textarea:focus, details[open]');
-    var deshaciendo = document.querySelector('.undo');   // no borrar el «Deshacer»
-    // Recargar con cambios a medio hacer los tiraría a la basura sin avisar.
-    if (!editando && !deshaciendo && !hayCambiosSinGuardar()) {
-      guardarPosicion();
-      location.reload();
+  ir((location.hash || "").replace("#", ""));
+
+  /* ---- editor de un bloque ---- */
+  document.addEventListener("click", function(e){
+    var abre = e.target.closest ? e.target.closest("[data-editar]") : null;
+    if (abre){
+      var ed = document.getElementById("ed-" + abre.dataset.editar);
+      if (ed){ ed.hidden = !ed.hidden; abre.textContent = ed.hidden ? "Edit" : "Close"; }
+      return;
     }
-  }, 60000);
+    var cierra = e.target.closest ? e.target.closest("[data-cerrar]") : null;
+    if (cierra){
+      var ed2 = document.getElementById("ed-" + cierra.dataset.cerrar);
+      var bot = document.querySelector('[data-editar="' + cierra.dataset.cerrar + '"]');
+      if (ed2) ed2.hidden = true;
+      if (bot) bot.textContent = "Edit";
+    }
+  });
+
+  /* ---- marcar lo que cambió, sin guardar ----
+     El aviso vive en el formulario que contiene al campo: el editor de un
+     bloque tiene el suyo, y cada pantalla de ajustes el suyo. Así editar el
+     almuerzo no avisa de cambios en el ejercicio. */
+  function ensucia(nodo){
+    var caja = nodo.closest("form");
+    if (!caja) return;
+    var aviso = caja.querySelector(".sin-guardar");
+    if (aviso) aviso.hidden = false;
+    /* El borde ámbar va en el control mismo cuando tiene borde propio; los
+       checkbox y los radios no lo tienen, así que ahí no se pinta nada. */
+    if (nodo.tagName === "SELECT" || nodo.type === "text" || nodo.tagName === "TEXTAREA"){
+      nodo.classList.add("editado");
+    }
+    var fila = nodo.closest(".bloq");
+    if (fila) fila.classList.add("sucio");
+  }
+  document.addEventListener("input", function(e){ ensucia(e.target); });
+  document.addEventListener("change", function(e){
+    var t = e.target;
+    ensucia(t);
+
+    if (t.hasAttribute && t.hasAttribute("data-palanca")){
+      t.parentElement.querySelector(".et").textContent = t.checked ? "on" : "off";
+    }
+    var dia = t.closest ? t.closest(".dias label") : null;
+    if (dia) dia.classList.toggle("marcado", t.checked);
+
+    /* Un bloque de hora fija no negocia: su ventana y su mínimo sobran. */
+    if (t.hasAttribute && t.hasAttribute("data-tipo")){
+      var ed = t.closest(".editor"), fijo = t.value === "fixed";
+      Array.prototype.forEach.call(ed.querySelectorAll("[data-solo-flex]"), function(l){
+        l.classList.toggle("inhabil", fijo);
+        l.querySelector("select").disabled = fijo;
+      });
+      ed.querySelector("[data-et-pref]").textContent = fijo ? "Start time" : "Preferred time";
+      ed.querySelector("[data-ay]").textContent = fijo
+        ? "“Fixed time” always takes its hours, whatever else is there. It does not stop your other blocks landing inside it."
+        : "“Finds a slot” gives up its time first and its length second, down to the shortest acceptable.";
+    }
+
+    /* El texto del label solo sirve con "Fixed label". */
+    if (t.hasAttribute && t.hasAttribute("data-modo")){
+      var fila2 = t.closest("[data-par]"), et = fila2.querySelector("[data-etiqueta]");
+      var custom = t.value === "custom";
+      et.disabled = !custom;
+      et.placeholder = custom ? "word" : "—";
+      if (custom) et.focus();
+    }
+  });
+})();
 </script>
 </body>
 </html>

@@ -70,6 +70,12 @@ def slot(slots, habit_id, dia):
     return slots.get((habit_id, dia.isoformat()))
 
 
+def semanas_hasta(dia):
+    """Cuántas semanas hay que avanzar desde la de hoy para llegar a la de `dia`."""
+    lunes_hoy = habits.hoy() - timedelta(days=habits.hoy().weekday())
+    return (dia - lunes_hoy).days // 7
+
+
 # --- Los hábitos que vienen de fábrica ---------------------------------------
 
 def test_los_habitos_de_fabrica_existen_y_explore_llega_apagado(conn):
@@ -1106,3 +1112,125 @@ def test_un_bloque_pasado_gasta_su_cupo_de_la_semana(conn, cuentas, monkeypatch)
 
     assert por_semana, "debería colocar ejercicio"
     assert max(por_semana.values()) == 3, f"nunca más de 3 por semana: {por_semana}"
+
+
+# --- La semana que se dibuja en el dashboard --------------------------------
+
+def test_los_solapes_se_reparten_en_carriles_como_google():
+    """El caso real de David: Not available 5–8pm con Meditation y Exercise
+    dentro. Google los pone al lado, no uno encima del otro."""
+    piezas = [
+        {"ini": 17 * 60, "fin": 20 * 60, "t": "Not available"},
+        {"ini": 17 * 60, "fin": 18 * 60, "t": "Meditation"},
+        {"ini": 18 * 60, "fin": 19 * 60 + 30, "t": "Exercise"},
+    ]
+    colocadas = {p["t"]: p for p in habits.carriles(piezas)}
+    assert colocadas["Not available"]["carril"] == 0
+    assert colocadas["Meditation"]["carril"] == 1
+    assert colocadas["Exercise"]["carril"] == 1, "cabe donde terminó Meditation"
+    assert {p["total"] for p in colocadas.values()} == {2}, "mismo ancho para el grupo"
+
+
+def test_sin_solape_cada_pieza_ocupa_la_columna_entera():
+    piezas = [{"ini": 600, "fin": 660}, {"ini": 700, "fin": 760}]
+    assert [p["total"] for p in habits.carriles(piezas)] == [1, 1]
+
+
+def test_dos_reuniones_pegadas_no_son_un_solape():
+    """Una que termina a las 11:00 y otra que empieza a las 11:00 no se pisan."""
+    piezas = [{"ini": 600, "fin": 660}, {"ini": 660, "fin": 720}]
+    assert [p["total"] for p in habits.carriles(piezas)] == [1, 1]
+
+
+def test_la_rejilla_cubre_el_dia_entero_y_solo_cambia_donde_abre(conn, cuentas):
+    """La primera versión dibujaba solo las horas con contenido, así que no se
+    podía bajar a ver el resto del día. Ahora recorta la vista, no la rejilla."""
+    solo(conn, "Lunch")
+    lunes = proximo_lunes()
+    slots, _ = habits.decidir_slots(conn)
+    habits.guardar_slots(conn, slots)
+
+    vista = habits.vista_semana(conn, offset=semanas_hasta(lunes))
+    assert len(vista["horas"]) == 24, "la rejilla siempre es el día completo"
+    assert vista["alto_dia"] == 24 * config.PX_HORA
+    assert not vista["vacia"]
+    # El almuerzo va a la 1; la vista abre a las 12:30 redondeado hacia abajo.
+    assert vista["foco"] == "12pm"
+    assert vista["foco_px"] == 12 * config.PX_HORA
+
+
+def test_las_reuniones_mueven_donde_abre_la_vista(conn, cuentas):
+    solo(conn, "Lunch")
+    lunes = proximo_lunes()
+    reunion(conn, cuentas["Ruca"], lunes, "06:00", "07:00", "madrugada")
+    slots, _ = habits.decidir_slots(conn)
+    habits.guardar_slots(conn, slots)
+    offset = semanas_hasta(lunes)
+
+    con = habits.vista_semana(conn, offset=offset, con_reuniones=True)
+    sin = habits.vista_semana(conn, offset=offset, con_reuniones=False)
+    assert con["foco"] == "5am", "con la reunión de las 6, abre antes"
+    assert sin["foco"] == "12pm", "sin ella, abre donde empieza el almuerzo"
+    assert len(con["horas"]) == len(sin["horas"]) == 24
+
+
+def test_una_semana_mas_alla_del_horizonte_se_explica(conn, cuentas):
+    vista = habits.vista_semana(conn, offset=20)
+    assert vista["vacia"] and vista["mas_alla"]
+
+
+def test_la_vista_no_se_sale_del_dia(conn, cuentas):
+    """Una reunión que cruza la medianoche se recorta a su propia columna."""
+    solo(conn, "Lunch")
+    lunes = proximo_lunes()
+    inicio = habits.local(lunes, habits.hhmm("23:00"))
+    fin = inicio + timedelta(hours=3)
+    conn.execute(
+        "INSERT INTO source_events (account_id, event_id, summary, start_raw, end_raw, "
+        "start_utc, end_utc, all_day, transparency, status, my_response, has_guests, "
+        "is_mirror, updated) VALUES (?, 'larga', 'Trasnocho', '{}', '{}', ?, ?, 0, 'opaque', "
+        "'confirmed', 'owner', 1, 0, '')",
+        (cuentas["Ruca"], inicio.astimezone(timezone.utc).isoformat(),
+         fin.astimezone(timezone.utc).isoformat()))
+    conn.commit()
+
+    vista = habits.vista_semana(conn, offset=semanas_hasta(lunes))
+    for columna in vista["columnas"]:
+        for pieza in columna["piezas"]:
+            assert 0 <= pieza["ini"] < pieza["fin"] <= 24 * 60
+            assert pieza["top"] + pieza["alto"] <= vista["alto_dia"] + 2
+
+
+def test_cambiar_de_zona_horaria_no_se_lee_como_mover_los_bloques(conn, con_personal, monkeypatch):
+    """El día que viajes y macOS te cambie la zona, CalSync no debe creer que
+    moviste todo a mano.
+
+    El mismo instante se escribe distinto en cada zona: 13:00-05:00 y
+    18:00+00:00 son la misma hora. Comparando el texto en vez del instante,
+    cada bloque se leía como movido y la agenda entera se reescribía — y
+    además quedaba marcada «a mano», es decir exenta de su propia ventana.
+    """
+    from zoneinfo import ZoneInfo
+
+    solo(conn, "Lunch")
+    lunes = proximo_lunes()
+    lunch = habito(conn, "Lunch")["id"]
+
+    slots, _ = habits.decidir_slots(conn)
+    habits.guardar_slots(conn, slots)
+    colocado = slot(slots, lunch, lunes)
+    bloque_en_google(conn, lunch, lunes, con_personal["Personal"], "orig-1",
+                     datetime.fromisoformat(colocado["start_local"]).strftime("%H:%M"),
+                     colocado["minutes"])
+
+    # El computador cambia de zona. Nada se movió: solo se escribe distinto.
+    monkeypatch.setattr(config, "TZ", ZoneInfo("Europe/Madrid"))
+
+    slots, _ = habits.decidir_slots(conn)
+    fila = conn.execute(
+        "SELECT by_hand FROM habit_slots WHERE habit_id = ? AND day = ?",
+        (lunch, lunes.isoformat())).fetchone()
+    assert fila is None or not fila["by_hand"], (
+        "cambiar de zona se leyó como un movimiento a mano")
+    movidos = [l for l in db.recent_log(conn, 50) if l["action"] == "bloque_movido_a_mano"]
+    assert not movidos, "no debería haber registrado ningún movimiento"
