@@ -1,0 +1,82 @@
+{# La semana del dashboard, en su propio archivo.
+
+   Vive aparte porque se sirve de dos maneras: incrustada en el dashboard la
+   primera vez, y suelta por /week cuando pulsas una flecha. Así el servidor
+   sigue siendo el único que sabe dibujar la rejilla —el cálculo de carriles
+   no se duplica en JavaScript ni pierde sus pruebas— y la página no se
+   recarga, que era lo que te mandaba al principio del documento. #}
+
+  <div class="cal-barra">
+    {# Las flechas NO llevan `meetings`: heredan la preferencia guardada. Si la
+       llevaran, abrir uno de estos enlaces —o que el navegador lo precargara
+       al pasar el ratón— cambiaría la preferencia sin que nadie la tocara. #}
+    <span class="flechas">
+      <a href="/?week={{ vista.offset - 1 }}#dashboard" data-semana="{{ vista.offset - 1 }}"
+         title="Previous week" aria-label="Previous week">‹</a>
+      <a href="/?week={{ vista.offset + 1 }}#dashboard" data-semana="{{ vista.offset + 1 }}"
+         title="Next week" aria-label="Next week">›</a>
+    </span>
+    <a class="hoy-btn" href="/?week=0#dashboard" data-semana="0">Today</a>
+    <span class="rango">{{ vista.etiqueta }}</span>
+    <label class="interruptor">
+      <input type="checkbox" id="verReuniones" {{ 'checked' if vista.con_reuniones }}
+             data-semana="{{ vista.offset }}">
+      Show my meetings</label>
+  </div>
+  <div class="cal-leyenda">
+    {% for nombre, color in vista.leyenda %}
+    <span><i style="background:{{ color or '#4285F4' }}"></i>{{ nombre }}</span>
+    {% endfor %}
+    {% if vista.con_reuniones %}<span><i style="background:var(--tinta-3)"></i>Meetings</span>{% endif %}
+  </div>
+
+  {% if vista.vacia %}
+  <div class="cal-marco"><div class="cal-vacio">
+    {% if vista.mas_alla %}Nothing planned yet. CalSync places blocks {{ horizonte }} days ahead,
+      so this week fills in as it gets closer.
+    {% else %}No blocks or meetings this week.{% endif %}
+  </div></div>
+  {% else %}
+  <div class="cal-marco">
+    <div class="cal-scroll" style="max-height:{{ vista.alto }}px" data-foco="{{ vista.foco_px }}">
+      <div class="cal">
+        <div class="cal-cab"><div></div>
+          {% for col in vista.columnas %}
+          <div class="dia{{ ' es-hoy' if col.es_hoy }}">
+            <div class="nom">{{ col.nombre }}</div><div class="num">{{ col.numero }}</div>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="cal-cuerpo">
+          <div class="gutter">
+            {% for h, etiqueta, _top in vista.horas %}
+            <div class="h"><span>{% if h %}{{ etiqueta }}{% endif %}</span></div>
+            {% endfor %}
+          </div>
+          {% for col in vista.columnas %}
+          <div class="col{{ ' es-hoy' if col.es_hoy }}">
+            {% for _h, _e, _t in vista.horas %}<div class="h"></div>{% endfor %}
+            {% for p in col.piezas %}
+            <div class="ev{{ ' reunion' if p.tipo == 'reunion' }}{{ ' corto' if p.corto }}"
+                 style="top:{{ p.top }}px;height:{{ p.alto }}px;left:calc({{ p.izq }}% + 2px);
+                        width:calc({{ p.ancho }}% - 4px)
+                        {%- if p.tipo == 'bloque' %};background:{{ p.color or '#4285F4' }};color:#fff{% endif %}"
+                 title="{{ p.titulo }}{% if p.cuenta %} · {{ p.cuenta }}{% endif %} · {{ p.rango }}">
+              <span class="t">{{ p.titulo }}</span><span class="r">{{ p.rango }}</span>
+            </div>
+            {% endfor %}
+            {% if col.es_hoy and vista.ahora_px is not none %}
+            <div class="linea-ahora" style="top:{{ vista.ahora_px }}px"></div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {# Nombra la hora del PRIMER evento, no dónde abre el scroll. El scroll deja
+     media hora de aire encima a propósito; decir «abre a las 4am» cuando lo
+     primero es a las 5 se lee como un error. #}
+  <p class="cal-pie">Earliest this week is {{ vista.primera }} — scroll for the rest of the day.
+    Blocks are planned {{ horizonte }} days ahead.</p>
+  {% endif %}

@@ -108,7 +108,17 @@ details.plegable>summary:hover{color:var(--tinta)}
 details.plegable .adentro{padding-top:11px;font-size:12.5px;color:var(--tinta-2)}
 
 /* ---- calendario ---- */
+/* El calendario son cuatro piezas —controles, leyenda, rejilla y pie— metidas
+   en #calWrap para poder reemplazarlo entero al cambiar de semana. Ese envoltorio
+   necesita su propia separación: el `gap` de la sección solo separa a sus hijos
+   directos, y #calWrap es uno solo, así que dentro todo quedaba pegado. */
+#calWrap{display:flex;flex-direction:column;gap:13px}
 .cal-barra{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+/* Sin esto la casilla y su texto se alinean por la base de la letra, y el texto
+   se ve caído respecto al cuadrito. */
+.interruptor{display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+  font-size:12.5px;color:var(--tinta-2);user-select:none}
+.interruptor input{margin:0}
 .flechas{display:inline-flex;gap:4px}
 .flechas a,.hoy-btn{font:inherit;font-size:13px;line-height:1;background:var(--tarjeta);
   border:1px solid var(--linea);color:var(--tinta);border-radius:7px;padding:6px 10px;
@@ -116,10 +126,19 @@ details.plegable .adentro{padding-top:11px;font-size:12.5px;color:var(--tinta-2)
 .hoy-btn{font-size:12px}
 .flechas a:hover,.hoy-btn:hover{border-color:var(--tinta-3)}
 .cal-barra .rango{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
-.cal-barra .leyenda{margin-left:auto;display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;
-  color:var(--tinta-3)}
-.cal-barra .leyenda i{display:inline-block;width:9px;height:9px;border-radius:2.5px;
+/* La leyenda va en su propia línea, siempre. Compartiendo fila con los
+   controles, que «Meetings» apareciera o desapareciera reacomodaba la barra
+   entera y los botones cambiaban de sitio al pulsarlos. */
+.cal-leyenda{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--tinta-3);
+  margin-top:-3px}
+.cal-leyenda i{display:inline-block;width:9px;height:9px;border-radius:2.5px;
   margin-right:5px;vertical-align:-1px}
+/* `hidden` es un atributo del navegador, pero cualquier `display` propio le
+   gana y el elemento se queda a la vista. Nos pasó con `.confirmar`: las dos
+   salidas del editor se veían desde el principio. Esta línea lo zanja para
+   todo el archivo. */
+[hidden]{display:none!important}
+.confirmar{display:inline-flex;gap:7px}
 .cal-marco{background:var(--tarjeta);border:1px solid var(--linea);border-radius:11px;overflow:hidden}
 .cal-scroll{overflow:auto}
 .cal{min-width:660px;position:relative}
@@ -349,76 +368,11 @@ table.pares tr:last-child td{border-bottom:0}
 
   <div class="enc">
     <div class="titulo-sec">Your week</div>
-    <p class="sub-sec">Protected blocks and real meetings on one grid — the three accounts at
-      once, which no single Google Calendar can show you.</p>
+<p class="sub-sec">Protected blocks and real meetings on one grid{% if n_cal > 1 %},
+      {{ cal_frase }} at once — which no single Google Calendar can show you{% endif %}.</p>
   </div>
 
-  <div class="cal-barra">
-    <span class="flechas">
-      <a href="/?week={{ vista.offset - 1 }}&amp;meetings={{ 1 if vista.con_reuniones else 0 }}#dashboard"
-         title="Previous week" aria-label="Previous week">‹</a>
-      <a href="/?week={{ vista.offset + 1 }}&amp;meetings={{ 1 if vista.con_reuniones else 0 }}#dashboard"
-         title="Next week" aria-label="Next week">›</a>
-    </span>
-    <a class="hoy-btn" href="/?week=0&amp;meetings={{ 1 if vista.con_reuniones else 0 }}#dashboard">Today</a>
-    <span class="rango">{{ vista.etiqueta }}</span>
-    <a class="hoy-btn" href="/?week={{ vista.offset }}&amp;meetings={{ 0 if vista.con_reuniones else 1 }}#dashboard">
-      {{ 'Hide my meetings' if vista.con_reuniones else 'Show my meetings' }}</a>
-    <span class="leyenda">
-      {% for nombre, color in vista.leyenda %}
-      <span><i style="background:{{ color or '#4285F4' }}"></i>{{ nombre }}</span>
-      {% endfor %}
-      {% if vista.con_reuniones %}<span><i style="background:var(--tinta-3)"></i>Meetings</span>{% endif %}
-    </span>
-  </div>
-
-  {% if vista.vacia %}
-  <div class="cal-marco"><div class="cal-vacio">
-    {% if vista.mas_alla %}Nothing planned yet. CalSync places blocks {{ horizonte }} days ahead,
-      so this week fills in as it gets closer.
-    {% else %}No blocks or meetings this week.{% endif %}
-  </div></div>
-  {% else %}
-  <div class="cal-marco">
-    <div class="cal-scroll" style="max-height:{{ vista.alto }}px" data-foco="{{ vista.foco_px }}">
-      <div class="cal">
-        <div class="cal-cab"><div></div>
-          {% for col in vista.columnas %}
-          <div class="dia{{ ' es-hoy' if col.es_hoy }}">
-            <div class="nom">{{ col.nombre }}</div><div class="num">{{ col.numero }}</div>
-          </div>
-          {% endfor %}
-        </div>
-        <div class="cal-cuerpo">
-          <div class="gutter">
-            {% for h, etiqueta, _top in vista.horas %}
-            <div class="h"><span>{% if h %}{{ etiqueta }}{% endif %}</span></div>
-            {% endfor %}
-          </div>
-          {% for col in vista.columnas %}
-          <div class="col{{ ' es-hoy' if col.es_hoy }}">
-            {% for _h, _e, _t in vista.horas %}<div class="h"></div>{% endfor %}
-            {% for p in col.piezas %}
-            <div class="ev{{ ' reunion' if p.tipo == 'reunion' }}{{ ' corto' if p.corto }}"
-                 style="top:{{ p.top }}px;height:{{ p.alto }}px;left:calc({{ p.izq }}% + 2px);
-                        width:calc({{ p.ancho }}% - 4px)
-                        {%- if p.tipo == 'bloque' %};background:{{ p.color or '#4285F4' }};color:#fff{% endif %}"
-                 title="{{ p.titulo }}{% if p.cuenta %} · {{ p.cuenta }}{% endif %} · {{ p.rango }}">
-              <span class="t">{{ p.titulo }}</span><span class="r">{{ p.rango }}</span>
-            </div>
-            {% endfor %}
-            {% if col.es_hoy and vista.ahora_px is not none %}
-            <div class="linea-ahora" style="top:{{ vista.ahora_px }}px"></div>
-            {% endif %}
-          </div>
-          {% endfor %}
-        </div>
-      </div>
-    </div>
-  </div>
-  <p class="cal-pie">Opens at {{ vista.foco }}, where this week actually starts — scroll for the
-    rest of the day. Blocks are planned {{ horizonte }} days ahead.</p>
-  {% endif %}
+  <div id="calWrap">{% include "_semana.html" %}</div>
 
   <div class="tarjeta"><div class="cuerpo">
     <form method="post" action="/sync"
@@ -485,12 +439,12 @@ table.pares tr:last-child td{border-bottom:0}
       <div class="titulo-sec">Blocks</div>
       <form method="post" action="/blocks/new"
             style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <input type="text" name="nombre" placeholder="Name of the new block (e.g. 🧘 Meditation)"
+        <input type="text" name="nombre" placeholder="Name (e.g. 🧘 Meditation)"
                required style="min-width:230px">
         <button class="btn fuerte">Add block</button>
       </form>
     </div>
-    <p class="sub-sec">Time CalSync protects for you across all three calendars.
+<p class="sub-sec">Time CalSync protects for you across {{ cal_frase }}.
       Edit a block and it moves everywhere.</p>
   </div>
 
@@ -612,6 +566,12 @@ table.pares tr:last-child td{border-bottom:0}
         <div class="pie">
           <button class="btn fuerte">Save changes</button>
           <button class="btn" type="button" data-cerrar="{{ h.id }}">Cancel</button>
+          {# Solo aparecen si hay algo que perder: cancelar sin cambios encima
+             no tiene por qué preguntar nada. #}
+          <span class="confirmar" hidden>
+            <button class="btn peligro" type="button" data-descartar="{{ h.id }}">Discard changes</button>
+            <button class="btn" type="button" data-seguir="{{ h.id }}">Keep editing</button>
+          </span>
           <span class="sin-guardar" hidden>unsaved changes</span>
           <span class="ay" data-ay>{% if fijo %}“Fixed time” always takes its hours, whatever
             else is there. It does not stop your other blocks landing inside it.
@@ -626,7 +586,7 @@ table.pares tr:last-child td{border-bottom:0}
   <p class="nota-pie">Every protected block lives in one account, which you pick in its own row.
     Move or delete the block <b>there</b> and CalSync follows you, pushing the change to the
     other accounts. Editing a copy does nothing: it gets recalculated.</p>
-  <p class="nota-pie">A block is created directly in all three calendars, so it is not a mirror
+<p class="nota-pie">A block is created directly in {{ cal_frase }}, so it is not a mirror
     and the Sharing table does not apply to it — <b>name visible to others</b> on the block
     itself is what colleagues see.</p>
 </section>
@@ -696,7 +656,7 @@ table.pares tr:last-child td{border-bottom:0}
       On, they see it like any other event of yours in that account — useful when the other
       calendar belongs to a client or project of the same organization.</p>
     <p class="nota-pie">This table applies to your <i>real meetings</i> only. Protected blocks
-      are not mirrors — each one is created directly in all three calendars — so what others
+      are not mirrors —each one is created directly in {{ cal_frase }} — so what others
       see of them is set by <b>name visible to others</b> on the block itself, under Blocks.</p>
 
     <div class="bloque">
@@ -707,8 +667,8 @@ table.pares tr:last-child td{border-bottom:0}
       <div class="tarjeta">
         <div class="campo">
           <div class="izq"><div class="et">Busy word</div>
-            <div class="ay">Reads "{{ settings.busy_word }} ({{ (accounts|selectattr('enabled')|list|first).label
-              if accounts|selectattr('enabled')|list else 'Work' }})" in the other calendar.</div></div>
+<div class="ay">A mirrored meeting reads "{{ settings.busy_word }}" followed by
+              the name of the calendar it came from, in brackets.</div></div>
           <div class="der"><input type="text" name="busy_word" value="{{ settings.busy_word }}"
             size="12"></div>
         </div>
@@ -837,8 +797,8 @@ table.pares tr:last-child td{border-bottom:0}
 <section id="p-danger">
   <div class="enc">
     <div class="titulo-sec">Danger zone</div>
-    <p class="sub-sec">This removes everything CalSync created, on all dates, in the three
-      calendars. Your own meetings are never touched.</p>
+<p class="sub-sec">This removes everything CalSync created, on all dates, in
+      {{ cal_frase }}. Your own meetings are never touched.</p>
   </div>
   <div class="tarjeta peligro-caja">
     <div class="campo">
@@ -885,28 +845,130 @@ table.pares tr:last-child td{border-bottom:0}
     b.addEventListener("click", function(){ ir(b.dataset.ir); window.scrollTo(0, 0); });
   });
 
-  /* El calendario cubre el día entero; esto solo decide dónde abre. */
+  /* El calendario cubre el día entero; esto solo decide dónde abre.
+     Nueve píxeles de margen porque la etiqueta de la hora cuelga por encima de
+     su línea y si no, la primera queda cortada por el borde. */
   function encuadra(){
-    var sc = document.querySelector(".cal-scroll");
+    var sc = document.querySelector("#calWrap .cal-scroll");
     if (sc) sc.scrollTop = Math.max(0, Number(sc.dataset.foco || 0) - 9);
   }
 
+  /* ---- cambiar de semana sin recargar ----
+     Las flechas son enlaces de verdad, así que sin JavaScript siguen
+     funcionando como navegación normal. Con JavaScript se interceptan y solo
+     se reemplaza el trozo del calendario: la página no se mueve, y el servidor
+     sigue siendo el único que sabe dibujar la rejilla. */
+  var calWrap = document.getElementById("calWrap");
+
+  function pideSemana(semana, reuniones){
+    var url = "/week?week=" + semana +
+      (reuniones === undefined ? "" : "&meetings=" + (reuniones ? 1 : 0));
+    fetch(url, {headers: {"X-Requested-With": "fetch"}})
+      .then(function(r){ if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then(function(html){
+        /* El calendario nuevo mide exactamente lo mismo que el viejo —la
+           rejilla cubre el día entero siempre—, así que la página no cambia
+           de alto y el scroll se queda donde estaba. Si algún día la rejilla
+           pasara a medir según el contenido, habría que guardar y reponer
+           `window.scrollY` alrededor de esta línea. */
+        calWrap.innerHTML = html;
+        encuadra();
+      })
+      .catch(function(){
+        /* Si falla, se cae a la navegación de siempre en vez de quedarse
+           callado con el calendario viejo en pantalla. */
+        location.href = "/?week=" + semana +
+          (reuniones === undefined ? "" : "&meetings=" + (reuniones ? 1 : 0)) + "#dashboard";
+      });
+  }
+
+  calWrap.addEventListener("click", function(e){
+    var enlace = e.target.closest ? e.target.closest("a[data-semana]") : null;
+    if (!enlace) return;
+    e.preventDefault();
+    pideSemana(enlace.dataset.semana);
+  });
+  calWrap.addEventListener("change", function(e){
+    if (e.target.id !== "verReuniones") return;
+    pideSemana(e.target.dataset.semana, e.target.checked);
+  });
+
   ir((location.hash || "").replace("#", ""));
 
-  /* ---- editor de un bloque ---- */
+  /* ---- editor de un bloque ----
+     Dos salidas y solo dos: guardar, o cancelar y confirmar que se pierde lo
+     escrito. El botón «Edit» se esconde mientras el panel está abierto, para
+     que no parezca una tercera salida que conserva a medias.
+     Cambiar de pestaña NO descarta: las pestañas muestran y esconden el mismo
+     HTML, así que volver te devuelve el formulario como lo dejaste. */
+
+  /* Devuelve cada control a su valor original. `reset()` solo restaura los
+     valores; la etiqueta on/off, las píldoras de los días y los campos que un
+     bloque de hora fija deshabilita hay que rehacerlos aparte. */
+  function descarta(id){
+    var ed = document.getElementById("ed-" + id);
+    var bot = document.querySelector('[data-editar="' + id + '"]');
+    if (!ed) return;
+    ed.reset();
+    sincroniza(ed);
+    Array.prototype.forEach.call(ed.querySelectorAll(".editado"), function(x){
+      x.classList.remove("editado");
+    });
+    ed.querySelector(".sin-guardar").hidden = true;
+    ed.querySelector(".confirmar").hidden = true;
+    ed.querySelector("[data-cerrar]").hidden = false;
+    var fila = ed.closest(".bloq");
+    if (fila) fila.classList.remove("sucio");
+    ed.hidden = true;
+    if (bot) bot.hidden = false;
+  }
+
+  function sincroniza(ed){
+    var palanca = ed.querySelector("[data-palanca]");
+    if (palanca) palanca.parentElement.querySelector(".et").textContent =
+      palanca.checked ? "on" : "off";
+    Array.prototype.forEach.call(ed.querySelectorAll(".dias label"), function(l){
+      l.classList.toggle("marcado", l.querySelector("input").checked);
+    });
+    var tipo = ed.querySelector("[data-tipo]");
+    if (tipo) aplicaTipo(ed, tipo.value === "fixed");
+  }
+
+  /* Un bloque de hora fija no negocia: su ventana y su mínimo sobran. */
+  function aplicaTipo(ed, fijo){
+    Array.prototype.forEach.call(ed.querySelectorAll("[data-solo-flex]"), function(l){
+      l.classList.toggle("inhabil", fijo);
+      l.querySelector("select").disabled = fijo;
+    });
+    ed.querySelector("[data-et-pref]").textContent = fijo ? "Start time" : "Preferred time";
+    ed.querySelector("[data-ay]").textContent = fijo
+      ? "\u201CFixed time\u201D always takes its hours, whatever else is there. It does not stop your other blocks landing inside it."
+      : "\u201CFinds a slot\u201D gives up its time first and its length second, down to the shortest acceptable.";
+  }
+
   document.addEventListener("click", function(e){
-    var abre = e.target.closest ? e.target.closest("[data-editar]") : null;
+    var t = e.target;
+    var abre = t.closest ? t.closest("[data-editar]") : null;
     if (abre){
       var ed = document.getElementById("ed-" + abre.dataset.editar);
-      if (ed){ ed.hidden = !ed.hidden; abre.textContent = ed.hidden ? "Edit" : "Close"; }
+      if (ed){ ed.hidden = false; abre.hidden = true; }
       return;
     }
-    var cierra = e.target.closest ? e.target.closest("[data-cerrar]") : null;
+    var cierra = t.closest ? t.closest("[data-cerrar]") : null;
     if (cierra){
       var ed2 = document.getElementById("ed-" + cierra.dataset.cerrar);
-      var bot = document.querySelector('[data-editar="' + cierra.dataset.cerrar + '"]');
-      if (ed2) ed2.hidden = true;
-      if (bot) bot.textContent = "Edit";
+      if (!ed2) return;
+      if (ed2.querySelector(".sin-guardar").hidden) descarta(cierra.dataset.cerrar);
+      else { cierra.hidden = true; ed2.querySelector(".confirmar").hidden = false; }
+      return;
+    }
+    var tira = t.closest ? t.closest("[data-descartar]") : null;
+    if (tira){ descarta(tira.dataset.descartar); return; }
+    var sigue = t.closest ? t.closest("[data-seguir]") : null;
+    if (sigue){
+      var ed3 = document.getElementById("ed-" + sigue.dataset.seguir);
+      ed3.querySelector(".confirmar").hidden = true;
+      ed3.querySelector("[data-cerrar]").hidden = false;
     }
   });
 
@@ -939,17 +1001,8 @@ table.pares tr:last-child td{border-bottom:0}
     if (dia) dia.classList.toggle("marcado", t.checked);
 
     /* Un bloque de hora fija no negocia: su ventana y su mínimo sobran. */
-    if (t.hasAttribute && t.hasAttribute("data-tipo")){
-      var ed = t.closest(".editor"), fijo = t.value === "fixed";
-      Array.prototype.forEach.call(ed.querySelectorAll("[data-solo-flex]"), function(l){
-        l.classList.toggle("inhabil", fijo);
-        l.querySelector("select").disabled = fijo;
-      });
-      ed.querySelector("[data-et-pref]").textContent = fijo ? "Start time" : "Preferred time";
-      ed.querySelector("[data-ay]").textContent = fijo
-        ? "“Fixed time” always takes its hours, whatever else is there. It does not stop your other blocks landing inside it."
-        : "“Finds a slot” gives up its time first and its length second, down to the shortest acceptable.";
-    }
+    if (t.hasAttribute && t.hasAttribute("data-tipo"))
+      aplicaTipo(t.closest(".editor"), t.value === "fixed");
 
     /* El texto del label solo sirve con "Fixed label". */
     if (t.hasAttribute && t.hasAttribute("data-modo")){

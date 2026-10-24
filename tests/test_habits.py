@@ -1154,9 +1154,12 @@ def test_la_rejilla_cubre_el_dia_entero_y_solo_cambia_donde_abre(conn, cuentas):
     assert len(vista["horas"]) == 24, "la rejilla siempre es el día completo"
     assert vista["alto_dia"] == 24 * config.PX_HORA
     assert not vista["vacia"]
-    # El almuerzo va a la 1; la vista abre a las 12:30 redondeado hacia abajo.
-    assert vista["foco"] == "12pm"
-    assert vista["foco_px"] == 12 * config.PX_HORA
+    # El almuerzo va a la 1. El scroll abre a las 12 —media hora de aire,
+    # redondeada hacia abajo— pero lo que se le DICE al usuario es la hora real
+    # del primer evento. Decirle «abre a las 12» cuando lo primero es a la 1 se
+    # lee como un error de cálculo.
+    assert vista["primera"] == "1pm", "el texto nombra el primer evento"
+    assert vista["foco_px"] == 12 * config.PX_HORA, "el scroll deja aire encima"
 
 
 def test_las_reuniones_mueven_donde_abre_la_vista(conn, cuentas):
@@ -1169,8 +1172,9 @@ def test_las_reuniones_mueven_donde_abre_la_vista(conn, cuentas):
 
     con = habits.vista_semana(conn, offset=offset, con_reuniones=True)
     sin = habits.vista_semana(conn, offset=offset, con_reuniones=False)
-    assert con["foco"] == "5am", "con la reunión de las 6, abre antes"
-    assert sin["foco"] == "12pm", "sin ella, abre donde empieza el almuerzo"
+    assert con["primera"] == "6am", "con las reuniones, lo primero es la de las 6"
+    assert sin["primera"] == "1pm", "sin ellas, lo primero es el almuerzo"
+    assert con["foco_px"] == 5 * config.PX_HORA, "y el scroll abre una hora antes"
     assert len(con["horas"]) == len(sin["horas"]) == 24
 
 
@@ -1234,3 +1238,12 @@ def test_cambiar_de_zona_horaria_no_se_lee_como_mover_los_bloques(conn, con_pers
         "cambiar de zona se leyó como un movimiento a mano")
     movidos = [l for l in db.recent_log(conn, 50) if l["action"] == "bloque_movido_a_mano"]
     assert not movidos, "no debería haber registrado ningún movimiento"
+
+
+def test_la_hora_que_se_muestra_dice_los_minutos_cuando_los_hay(conn, cuentas):
+    """7:30am, no «7am». Media hora de diferencia en un aviso es confusión."""
+    assert habits.reloj12_exacto(7 * 60 + 30) == "7:30am"
+    assert habits.reloj12_exacto(5 * 60) == "5am"
+    assert habits.reloj12_exacto(0) == "12am"
+    assert habits.reloj12_exacto(12 * 60 + 5) == "12:05pm"
+    assert habits.reloj12_exacto(23 * 60 + 45) == "11:45pm"

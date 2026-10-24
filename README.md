@@ -80,9 +80,9 @@ invitations.** This list exists so you can decide.
 
 ## Busy blocks between accounts
 
-*Settings → Directions and detail* has one row per direction — six rows for
-three accounts. Each row decides whether that direction is on and how much it
-reveals:
+*Sharing → How busy blocks look* has one row per direction: every account paired
+with every other, both ways round. Each row decides whether that direction is on
+and how much it reveals:
 
 | Mode | Looks like |
 |---|---|
@@ -110,7 +110,7 @@ duplicate the event for everyone.
 |---|---|
 | One event not to block | Put `[nosync]` in its title, from Google Calendar |
 | Same, more cleanly | Mark it *Free* in Google |
-| A standing rule | *Settings → Which events do NOT block time* |
+| A standing rule | *General → Which events do NOT block time* |
 | Undo everything | *Danger zone* → type `DELETE` |
 
 `[nosync]` means "do not mirror this", **not** "this does not exist" — a tagged
@@ -169,7 +169,7 @@ rule wins.
 ## What other people read
 
 When a direction is marked visible, colleagues read the event description. Those
-texts are editable in *Settings → What other people read*. On private events
+texts are editable in *Sharing → What other people read*. On private events
 Google shows the description to nobody, so it only applies to what you chose to
 share.
 

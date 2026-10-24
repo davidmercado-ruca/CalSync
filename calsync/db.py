@@ -175,6 +175,11 @@ DEFAULT_SETTINGS = {
         "Recurring personal block, kept in sync across calendars.\n\n"
         "If you need this time, message me instead of booking over it."
     ),
+    # Si el calendario del dashboard muestra también tus reuniones reales.
+    # Es una preferencia tuya, no de esa visita: la herramienta abre como la
+    # dejaste. Vive aquí y no en el navegador para que sobreviva a limpiar los
+    # datos del sitio.
+    "show_meetings": True,
     # Qué cuenta bloquea en qué cuenta. Clave "origen|destino" -> bool.
     # Se llena automáticamente al conectar cuentas (todo en true).
     "pairs": {},

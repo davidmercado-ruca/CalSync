@@ -47,6 +47,25 @@ def test_el_dashboard_carga_con_todas_sus_secciones(cliente):
         assert f'id="p-{seccion}"' in html
 
 
+def test_lo_escondido_se_esconde_de_verdad(cliente):
+    """`hidden` es del navegador, pero un `display` propio le gana.
+
+    Sin esta regla, `.confirmar` —que tiene su propio display— enseñaba
+    «Discard changes» y «Keep editing» desde que abría la página.
+    """
+    assert "[hidden]{display:none!important}" in cliente.get("/").text
+
+
+def test_el_calendario_separa_sus_piezas(cliente):
+    """El `gap` de la sección solo llega a sus hijos directos.
+
+    El calendario entero vive dentro de #calWrap —para poder reemplazarlo al
+    cambiar de semana—, así que la sección ve un solo hijo y dentro los
+    controles, la leyenda, la rejilla y el pie quedaban pegados.
+    """
+    assert "#calWrap{display:flex;flex-direction:column;gap:" in cliente.get("/").text
+
+
 def test_no_queda_jinja_sin_renderizar(cliente):
     """Una llave sin cerrar no rompe la página: la imprime tal cual."""
     html = cliente.get("/").text
@@ -240,3 +259,95 @@ def test_la_limpieza_total_exige_la_palabra_exacta(cliente):
     conn = db.connect()
     assert any(l["action"] == "limpieza_cancelada" for l in db.recent_log(conn, 10))
     conn.close()
+
+
+# --- El calendario que cambia sin recargar ----------------------------------
+
+def test_la_ruta_week_devuelve_solo_el_calendario(cliente):
+    """Es lo que pide el dashboard al pulsar una flecha. Si devolviera la
+    página entera, meterla dentro de sí misma rompería el documento."""
+    r = cliente.get("/week?week=1")
+    assert r.status_code == 200
+    html = r.text
+    assert 'class="cal-barra"' in html, "debe traer el calendario"
+    assert "<html" not in html and "<nav" not in html, "y nada más"
+
+
+def test_las_flechas_no_llevan_la_preferencia_de_reuniones(cliente):
+    """La preferencia se anota durante una lectura, así que ninguna dirección
+    navegable puede llevarla dentro: bastaría con que el navegador precargara
+    un enlace al pasar el ratón para cambiarla sin que nadie la toque."""
+    import re
+    html = cliente.get("/").text
+    for enlace in re.findall(r'href="(/\?week=[^"]*)"', html):
+        assert "meetings" not in enlace, f"la flecha {enlace} lleva la preferencia"
+
+
+def test_la_casilla_de_reuniones_se_recuerda(cliente):
+    conn = db.connect()
+    assert db.get_setting(conn, "show_meetings") is True, "por defecto se muestran"
+    conn.close()
+
+    cliente.get("/?meetings=0")
+    conn = db.connect()
+    assert db.get_setting(conn, "show_meetings") is False
+    conn.close()
+
+    # Y una carga sin el parámetro respeta lo guardado.
+    html = cliente.get("/").text
+    assert 'id="verReuniones"' in html
+    assert 'id="verReuniones" checked' not in html.replace("\n", " ")
+
+    cliente.get("/?meetings=1")
+    conn = db.connect()
+    assert db.get_setting(conn, "show_meetings") is True
+    conn.close()
+
+
+# --- El copy no asume cuántas cuentas hay -----------------------------------
+
+def test_el_copy_cuenta_los_calendarios_conectados(cliente):
+    html = " ".join(cliente.get("/").text.split())
+    assert "all 3 calendars" in html
+    for supuesto in ("three calendars", "three accounts", "all 1 calendars",
+                     "all 2 calendars"):
+        assert supuesto not in html
+
+
+def test_con_dos_cuentas_dice_both_y_con_una_no_cuenta(cliente):
+    conn = db.connect()
+    ids = [a["id"] for a in db.accounts(conn)]
+    conn.close()
+
+    cliente.post(f"/account/{ids[2]}/disconnect")
+    html = " ".join(cliente.get("/").text.split())
+    assert "both calendars" in html and "all 2 calendars" not in html
+
+    cliente.post(f"/account/{ids[1]}/disconnect")
+    html = " ".join(cliente.get("/").text.split())
+    assert "your calendar" in html and "calendars" not in html.split("Danger zone")[0][-400:]
+    # Con un solo calendario, la promesa de ver varios a la vez sobra.
+    assert "which no single Google Calendar can show you" not in html
+
+
+def test_el_ejemplo_de_la_palabra_busy_no_nombra_una_cuenta(cliente):
+    """Elegía la primera cuenta conectada, así que para alguien con varias el
+    ejemplo era falso la mayoría de las veces."""
+    html = " ".join(cliente.get("/").text.split())
+    assert "followed by the name of the calendar it came from" in html
+    assert '"Busy (Ruca)"' not in html
+
+
+def test_el_pie_nombra_el_primer_evento_no_donde_abre_el_scroll(cliente):
+    conn = db.connect()
+    lunch = next(h for h in db.habits(conn) if "Lunch" in h["name"])
+    dia = habits.hoy()
+    conn.execute(
+        "INSERT INTO habit_slots (habit_id, day, start_local, minutes) VALUES (?, ?, ?, 60)",
+        (lunch["id"], dia.isoformat(), habits.local(dia, habits.hhmm("05:00")).isoformat()))
+    conn.commit()
+    conn.close()
+
+    html = " ".join(cliente.get("/week?week=0").text.split())
+    assert "Earliest this week is 5am" in html, "nombra el evento"
+    assert "Opens at" not in html

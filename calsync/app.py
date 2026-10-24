@@ -8,6 +8,7 @@ sincronización cada pocos minutos en un hilo de fondo.
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, Form, Request
@@ -77,12 +78,67 @@ def volver(seccion: str = "dashboard"):
     return RedirectResponse(f"/#{seccion}", status_code=303)
 
 
+def frase_calendarios(n: int) -> str:
+    """Cómo nombrar los calendarios conectados, sin asumir cuántos hay.
+
+    La herramienta la va a usar gente con una cuenta y gente con cinco, así que
+    el texto no puede decir «los tres calendarios». Tampoco basta con meter el
+    número: «all 1 calendars» y «all 2 calendars» se leen a trompicones.
+    """
+    if n <= 1:
+        return "your calendar"
+    if n == 2:
+        return "both calendars"
+    return f"all {n} calendars"
+
+
+def preferencia_reuniones(conn, meetings: Optional[int]) -> bool:
+    """Si la casilla viene en la dirección, manda y se anota. Si no, se lee.
+
+    Anotarla durante una lectura es impuro, y a cambio son dos líneas en vez de
+    una ruta aparte. La precaución que lo hace seguro está en la plantilla: los
+    enlaces de las flechas NO llevan este parámetro, así que no hay ninguna
+    dirección navegable capaz de cambiar la preferencia sin que la toques.
+    """
+    if meetings is None:
+        return bool(db.get_setting(conn, "show_meetings", True))
+    db.set_setting(conn, "show_meetings", bool(meetings))
+    return bool(meetings)
+
+
+def contexto_semana(conn, week: int, meetings: Optional[int]) -> dict:
+    return {
+        "vista": habits.vista_semana(
+            conn,
+            # Se acota para que una dirección escrita a mano no pida el año 3000.
+            offset=max(-52, min(52, week)),
+            con_reuniones=preferencia_reuniones(conn, meetings),
+        ),
+        "horizonte": config.HABITS_HORIZON_DAYS,
+    }
+
+
+@app.get("/week")
+def semana(request: Request, week: int = 0, meetings: Optional[int] = None):
+    """Solo el calendario. Lo pide el dashboard al cambiar de semana, para no
+    recargar la página entera y perder la posición del scroll."""
+    conn = db.connect()
+    try:
+        return templates.TemplateResponse(
+            request=request, name="_semana.html",
+            context=contexto_semana(conn, week, meetings),
+        )
+    finally:
+        conn.close()
+
+
 @app.get("/")
-def dashboard(request: Request, week: int = 0, meetings: int = 1):
+def dashboard(request: Request, week: int = 0, meetings: Optional[int] = None):
     conn = db.connect()
     try:
         settings = db.all_settings(conn)
         accounts = db.accounts(conn, only_enabled=False)
+        accounts_activas = [a for a in accounts if a["enabled"]]
         ops, skipped = engine.compute_plan(conn)
         ops_habitos, conflictos = habits.compute_plan(conn)
         counts = {
@@ -108,15 +164,13 @@ def dashboard(request: Request, week: int = 0, meetings: int = 1):
                 "habits": db.habits(conn),
                 "papelera": settings.get("papelera"),
                 "conflicts": conflictos,
-                # Las flechas de semana llegan como ?week=; se acotan para que
-                # una URL escrita a mano no pida el año 3000.
-                "vista": habits.vista_semana(
-                    conn, offset=max(-52, min(52, week)), con_reuniones=bool(meetings)
-                ),
+                **contexto_semana(conn, week, meetings),
+                # El texto se adapta a cuántos calendarios hay conectados.
+                "n_cal": len(accounts_activas),
+                "cal_frase": frase_calendarios(len(accounts_activas)),
                 "log": db.recent_log(conn, 60),
                 "credentials_ok": config.CREDENTIALS_FILE.exists(),
                 "poll": config.POLL_MINUTES,
-                "horizonte": config.HABITS_HORIZON_DAYS,
                 "dias": habits.DIAS_CORTOS,
                 "opciones_duracion": habits.opciones_duracion,
                 "opciones_hora": habits.opciones_hora,

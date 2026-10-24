@@ -745,6 +745,13 @@ def reloj12(minutos: int) -> str:
     return f"{hora % 12 or 12}{'am' if hora < 12 else 'pm'}"
 
 
+def reloj12_exacto(minutos: int) -> str:
+    """Igual, pero diciendo los minutos cuando no son en punto: 7:30am."""
+    hora, resto = divmod(minutos, 60)
+    minuto = f":{resto:02d}" if resto else ""
+    return f"{hora % 12 or 12}{minuto}{'am' if hora < 12 else 'pm'}"
+
+
 def carriles(piezas):
     """Reparte en carriles lo que se solapa, igual que Google Calendar.
 
@@ -863,10 +870,14 @@ def vista_semana(conn, offset: int = 0, con_reuniones: bool = True):
             "piezas": piezas,
         })
 
-    vacia = mas_temprano is None
+        vacia = mas_temprano is None
     if vacia:
         foco, alto = 8 * 60, 420
-    else:
+    else:  # noqa: RET505
+                # El scroll abre media hora ANTES de lo primero, para que el bloque no
+        # quede pegado al borde. Pero el texto de abajo nombra `primera`, no
+        # `foco`: decir «abre a las 4am» cuando lo primero es a las 5 se lee
+        # como un error de cálculo, y es solo el aire.
         foco = max(0, ((mas_temprano - 30) // 60) * 60)
         tope = min(24 * 60, ((mas_tarde + 30 + 59) // 60) * 60)
         alto = min(max((tope - foco) * config.PX_HORA // 60, ALTO_MINIMO), ALTO_MAXIMO)
@@ -889,10 +900,10 @@ def vista_semana(conn, offset: int = 0, con_reuniones: bool = True):
         "columnas": columnas,
         "horas": [(h, reloj12(h * 60), h * config.PX_HORA) for h in range(24)],
         "alto_dia": 24 * config.PX_HORA,
-        "vacia": vacia,
+                "vacia": vacia,
         "alto": alto,
         "foco_px": foco * config.PX_HORA // 60,
-        "foco": reloj12(foco),
+        "primera": None if vacia else reloj12_exacto(mas_temprano),
         "ahora_px": ahora_px,
         "leyenda": sorted(usados.items()),
         # Más allá del horizonte no hay nada decidido todavía, y conviene
