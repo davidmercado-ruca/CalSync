@@ -236,8 +236,13 @@ if ! (launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null \
   pause 1
 fi
 
+# Noventa segundos y no treinta. Un arranque en frío —justo después de
+# reemplazar los archivos— tiene que volver a cargar las librerías de Google
+# sobre una base que ya pesa megas, y puede pasar del medio minuto. Con treinta
+# el instalador se rendía mientras CalSync estaba arrancando perfectamente, y
+# luego decía que había un error que no existía.
 echo "  Service installed. Waiting for it to answer…"
-for _ in $(seq 1 30); do
+for _ in $(seq 1 90); do
   if curl -s -o /dev/null --max-time 1 http://127.0.0.1:8765/; then
     echo
     echo "  ✓ CalSync is running in the background."
@@ -261,8 +266,29 @@ for _ in $(seq 1 30); do
 done
 
 echo
-echo "  ✗ No answer within 30 seconds. The real error is in:"
+# Antes de dar nada por roto, preguntar si hay alguien escuchando. Que no haya
+# contestado a tiempo y que no esté vivo son dos cosas muy distintas, y
+# confundirlas manda a buscar un error que no existe.
+if lsof -nP -iTCP:8765 -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "  ⚠  CalSync is up, but it took longer than 90 seconds to answer."
+  echo "     That happens on a cold start right after an update. Nothing"
+  echo "     is broken — give it a moment and use it as usual."
+  echo
+  echo "    Dashboard:  http://127.0.0.1:8765"
+  echo "    It starts every time you log in to your Mac."
+  echo
+  open http://127.0.0.1:8765
+  pause 0
+fi
+
+echo "  ✗ Nothing is listening on port 8765. The error is in:"
 echo "    $DATA/errors.log"
 echo
-tail -n 20 "$DATA/errors.log" 2>/dev/null | sed 's/^/     /'
+# Filtrado, no crudo. Las advertencias de Python 3.9 y de LibreSSL salen en
+# cada arranque y nunca son el problema, y los avisos de ciclos que llegaron
+# tarde son rutina. Sin quitarlos, las veinte líneas que se imprimen aquí son
+# siempre ruido y el error de verdad queda fuera de la pantalla.
+grep -v -e "FutureWarning" -e "NotOpenSSLWarning" -e "warnings.warn" \
+        -e "was missed by" "$DATA/errors.log" 2>/dev/null \
+  | tail -n 20 | sed 's/^/     /'
 pause 1
