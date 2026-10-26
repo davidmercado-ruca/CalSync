@@ -130,6 +130,14 @@ def ocupa_tiempo(evt, reglas=None) -> bool:
     return True
 
 
+# El trozo de SQL que deja fuera lo que ignoraste. Vive en una constante para
+# que las dos consultas que leen eventos no se separen nunca: si una lo lleva y
+# la otra no, CalSync coloca un bloque en un hueco y acto seguido avisa de que
+# ese hueco está ocupado.
+SIN_IGNORADOS = ("AND NOT EXISTS (SELECT 1 FROM ignored_events g "
+                 "WHERE g.account_id = e.account_id AND g.event_id = e.event_id)")
+
+
 def reglas_de(conn, reglas=None) -> dict:
     """Los ajustes de qué cuenta como tiempo ocupado.
 
@@ -150,9 +158,15 @@ def eventos_reales(conn, dia: date, reglas=None):
     """
     reglas = reglas_de(conn, reglas)
     desde, hasta = local(dia, time.min), local(dia, time.min) + timedelta(days=1)
+        # Lo que ignoraste no se filtra en `ocupa_tiempo` sino aquí, en la
+        # consulta: ignorar no es «no me quita tiempo», es «para CalSync este
+        # evento no está». Hacerlo en el SQL lo aplica de una vez a las dos
+        # lecturas y a la vista de la semana, sin pasar listas por media docena
+        # de funciones.
     filas = conn.execute(
         "SELECT e.*, a.label FROM source_events e JOIN accounts a ON a.id = e.account_id "
-        "WHERE e.end_utc > ? AND e.start_utc < ? ORDER BY e.start_utc",
+        "WHERE e.end_utc > ? AND e.start_utc < ? " + SIN_IGNORADOS
+        + " ORDER BY e.start_utc",
         (desde.astimezone(timezone.utc).isoformat(), hasta.astimezone(timezone.utc).isoformat()),
     )
     out = []
@@ -162,6 +176,8 @@ def eventos_reales(conn, dia: date, reglas=None):
         out.append({
             "titulo": evt["summary"] or "(no title)",
             "cuenta": evt["label"],
+            "cuenta_id": evt["account_id"],
+            "evento_id": evt["event_id"],
             "inicio": datetime.fromisoformat(evt["start_utc"]).astimezone(config.TZ),
             "fin": datetime.fromisoformat(evt["end_utc"]).astimezone(config.TZ),
         })
@@ -181,6 +197,41 @@ def franja(inicio: datetime, fin: datetime) -> str:
     return f"{inicio:%H:%M} → {fin:%b} {fin.day}, {fin:%H:%M}"
 
 
+def cuando_largo(evt) -> str:
+    """La fecha y la franja, para el panel del conflicto.
+
+    En la fila basta la hora, porque la fila ya lleva el día. En el panel el
+    evento es el protagonista y tiene que decir cuándo es de principio a fin.
+    """
+    return f"{evt['inicio']:%b} {evt['inicio'].day}, {franja(evt['inicio'], evt['fin'])}"
+
+
+def culpable(evt) -> dict:
+    """Lo mínimo para poder señalar a un evento desde el dashboard.
+
+    Sin `cuenta_id` y `evento_id` un conflicto es solo texto, y un texto no se
+    puede ignorar: hay que saber de qué evento de qué cuenta se está hablando.
+    """
+    return {
+        "cuenta_id": evt["cuenta_id"],
+        "evento_id": evt["evento_id"],
+        "titulo": evt["titulo"],
+        "cuenta": evt["cuenta"],
+        "cuando": cuando_largo(evt),
+    }
+
+
+def clave_par(a, b):
+    """La pareja de un choque, siempre en el mismo orden.
+
+    Si no se ordena, cambiar la hora de una de las dos reuniones invierte cuál
+    se encuentra primero, la clave guardada deja de coincidir, y un aviso que
+    descartaste reaparece sin que nada haya cambiado de verdad.
+    """
+    return tuple(sorted([(a["cuenta_id"], a["evento_id"]),
+                         (b["cuenta_id"], b["evento_id"])]))
+
+
 def se_pisan(a, b) -> bool:
     return a["inicio"] < b["fin"] and b["inicio"] < a["fin"]
 
@@ -194,6 +245,10 @@ def dobles_agendas(conn):
     """
     encontrados = []
     reglas = reglas_de(conn)
+    descartados = {
+        (f["a_account"], f["a_event"], f["b_account"], f["b_event"])
+        for f in db.choques_descartados(conn)
+    }
     for dia in dias_del_horizonte():
         eventos = eventos_reales(conn, dia, reglas)
         for i, uno in enumerate(eventos):
@@ -202,6 +257,9 @@ def dobles_agendas(conn):
                     continue          # dentro de una cuenta lo ves tú mismo
                 if not se_pisan(uno, otro):
                     continue
+                par = clave_par(uno, otro)
+                if (par[0][0], par[0][1], par[1][0], par[1][1]) in descartados:
+                    continue          # ya lo viste y dijiste que lo dejáramos
                 encontrados.append({
                     "tipo": "doble_agenda",
                     "dia": dia.isoformat(),
@@ -209,6 +267,8 @@ def dobles_agendas(conn):
                                    min(uno["fin"], otro["fin"])),
                     "titulo": f"{uno['titulo']} · {uno['cuenta']}",
                     "detalle": f'overlaps "{otro["titulo"]}" in {otro["cuenta"]}',
+                    "culpables": [culpable(uno), culpable(otro)],
+                    "par": [list(par[0]), list(par[1])],
                 })
     return encontrados
 
@@ -222,7 +282,7 @@ def ocupado_en(conn, dia: date, reglas=None):
     reglas = reglas_de(conn, reglas)
     desde, hasta = local(dia, time.min), local(dia, time.min) + timedelta(days=1)
     filas = conn.execute(
-        "SELECT * FROM source_events WHERE end_utc > ? AND start_utc < ?",
+        "SELECT * FROM source_events e WHERE end_utc > ? AND start_utc < ? " + SIN_IGNORADOS,
         (desde.astimezone(timezone.utc).isoformat(), hasta.astimezone(timezone.utc).isoformat()),
     )
     franjas = []
@@ -566,10 +626,13 @@ def decidir_slots(conn):
 
             if inicio is None:
                 estorban = [
-                    f'"{e["titulo"]}" ({e["cuenta"]}, {franja(e["inicio"], e["fin"])})'
-                    for e in eventos_reales(conn, dia, reglas)
+                    e for e in eventos_reales(conn, dia, reglas)
                     if e["inicio"] < local(dia, hhmm(habito["window_end"]))
                     and e["fin"] > local(dia, hhmm(habito["window_start"]))
+                ]
+                nombres = [
+                    f'"{e["titulo"]}" ({e["cuenta"]}, {franja(e["inicio"], e["fin"])})'
+                    for e in estorban[:4]
                 ]
                 conflictos.append({
                     "tipo": "bloque_sin_lugar",
@@ -578,9 +641,12 @@ def decidir_slots(conn):
                     "titulo": habito["name"],
                     "detalle": (
                         f"not even {habito['min_minutes']} min fitted. "
-                        + ("Taken by: " + ", ".join(estorban[:4]) if estorban
+                        + ("Taken by: " + ", ".join(nombres) if nombres
                            else "the window had no free space")
                     ),
+                    # Los mismos cuatro que nombra el texto: el panel no puede
+                    # ofrecerte ignorar algo que la fila no mencionó.
+                    "culpables": [culpable(e) for e in estorban[:4]],
                 })
                 continue
 
@@ -618,6 +684,7 @@ def decidir_slots(conn):
                             f'{evt["cuenta"]} · falls inside your block '
                             f'"{habito["name"].strip()}"'
                         ),
+                        "culpables": [culpable(evt)],
                     })
 
     return slots, conflictos

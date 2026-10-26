@@ -1365,3 +1365,99 @@ def test_una_opcion_nueva_no_nace_apagada(conn):
     assert reglas["skip_long"] is True and reglas["long_hours"] == 12, (
         "y lo que no guardaste llega con su valor por defecto"
     )
+
+
+# --- Ignorar un evento suelto ------------------------------------------------
+
+def mete_evento(conn, cuenta_id, evento_id, summary, inicio, fin, **extra):
+    campos = {"all_day": 0, "transparency": "opaque", "status": "confirmed",
+              "my_response": "accepted", "has_guests": 1, "is_mirror": 0}
+    campos.update(extra)
+    conn.execute(
+        "INSERT INTO source_events (account_id, event_id, summary, start_raw, end_raw, "
+        "start_utc, end_utc, all_day, transparency, status, my_response, has_guests, "
+        "is_mirror, updated) VALUES (?, ?, ?, '{}', '{}', ?, ?, ?, ?, ?, ?, ?, ?, '')",
+        (cuenta_id, evento_id, summary,
+         inicio.astimezone(timezone.utc).isoformat(), fin.astimezone(timezone.utc).isoformat(),
+         campos["all_day"], campos["transparency"], campos["status"],
+         campos["my_response"], campos["has_guests"], campos["is_mirror"]),
+    )
+    conn.commit()
+
+
+def test_un_evento_ignorado_deja_el_hueco_libre(conn, cuentas):
+    lunes = date(2026, 11, 9)
+    mete_evento(conn, cuentas["Ruca"], "reunion", "Comité",
+                habits.local(lunes, time(13, 0)), habits.local(lunes, time(14, 30)))
+    assert habits.ocupado_en(conn, lunes), "antes de ignorarlo, ocupa"
+
+    db.ignorar_evento(conn, cuentas["Ruca"], "reunion", "Comité", "Ruca", None)
+    assert habits.ocupado_en(conn, lunes) == [], "ignorado, el día queda libre"
+    assert habits.eventos_reales(conn, lunes) == [], "y tampoco se nombra en un conflicto"
+
+    db.dejar_de_ignorar(conn, cuentas["Ruca"], "reunion")
+    assert habits.ocupado_en(conn, lunes), "deshacerlo lo devuelve tal cual"
+
+
+def test_un_conflicto_dice_a_quien_culpar(conn, cuentas):
+    """Sin identidad el panel no puede ofrecer nada: una fila sin culpables es
+    solo texto."""
+    lunes = date(2026, 11, 9)
+    mete_evento(conn, cuentas["Ruca"], "janina", "Janina OOO",
+                habits.local(lunes, time(5, 0)),
+                habits.local(lunes + timedelta(days=1), time(6, 0)))
+    apagada = dict(db.all_settings(conn)["rules"]); apagada["skip_long"] = False
+    db.set_setting(conn, "rules", apagada)
+
+    _, conflictos = habits.decidir_slots(conn)
+    sin_lugar = [c for c in conflictos if c["tipo"] == "bloque_sin_lugar"]
+    assert sin_lugar, "el OOO largo deja algún bloque sin sitio"
+    culpable = sin_lugar[0]["culpables"][0]
+    assert culpable["evento_id"] == "janina"
+    assert culpable["cuenta_id"] == cuentas["Ruca"]
+    assert "Nov 10" in culpable["cuando"], "el panel dice cuándo acaba de verdad"
+
+
+def test_la_pareja_de_un_choque_no_depende_del_orden(conn, cuentas):
+    """Si la clave no se ordena, cambiar la hora de una de las dos reuniones
+    invierte cuál se encuentra primero y el aviso descartado reaparece solo."""
+    a = {"cuenta_id": 2, "evento_id": "bbb"}
+    b = {"cuenta_id": 1, "evento_id": "aaa"}
+    assert habits.clave_par(a, b) == habits.clave_par(b, a)
+    assert habits.clave_par(a, b)[0] == (1, "aaa"), "siempre la menor primero"
+
+
+def test_descartar_un_choque_esconde_solo_ese(conn, cuentas):
+    lunes = date(2026, 11, 9)
+    mete_evento(conn, cuentas["Ruca"], "uno", "Scrum",
+                habits.local(lunes, time(9, 0)), habits.local(lunes, time(9, 30)))
+    mete_evento(conn, cuentas["Galactic"], "dos", "Standup",
+                habits.local(lunes, time(9, 0)), habits.local(lunes, time(9, 30)))
+    mete_evento(conn, cuentas["Ruca"], "tres", "Comité",
+                habits.local(lunes, time(15, 0)), habits.local(lunes, time(16, 0)))
+    mete_evento(conn, cuentas["Galactic"], "cuatro", "Demo",
+                habits.local(lunes, time(15, 0)), habits.local(lunes, time(16, 0)))
+
+    choques = habits.dobles_agendas(conn)
+    assert len(choques) == 2
+
+    db.descartar_choque(conn, habits.clave_par(*choques[0]["culpables"]), "Scrum", "Standup")
+    quedan = habits.dobles_agendas(conn)
+    assert len(quedan) == 1, "el otro choque sigue avisando"
+
+    db.recuperar_choque(conn, habits.clave_par(*quedan[0]["culpables"]))
+    assert len(habits.dobles_agendas(conn)) == 1, "recuperar uno que no estaba no hace nada"
+
+
+def test_lo_silenciado_se_olvida_solo_cuando_ya_no_importa(conn, cuentas):
+    """Dos condiciones, no una. Que no esté en la base puede significar que
+    todavía no entró en la ventana de sincronización."""
+    pasado = (habits.ahora() - timedelta(days=40)).astimezone(timezone.utc).isoformat()
+    futuro = (habits.ahora() + timedelta(days=20)).astimezone(timezone.utc).isoformat()
+    db.ignorar_evento(conn, cuentas["Ruca"], "viejo", "OOO de marzo", "Ruca", pasado)
+    db.ignorar_evento(conn, cuentas["Ruca"], "porvenir", "OOO de diciembre", "Ruca", futuro)
+
+    db.limpiar_silenciados(conn)
+    quedan = {f["event_id"] for f in db.eventos_ignorados(conn)}
+    assert "viejo" not in quedan, "pasó y su evento ya no existe: se olvida"
+    assert "porvenir" in quedan, "todavía no ha llegado: se respeta"

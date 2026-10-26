@@ -97,6 +97,33 @@ main>section.viva{display:flex;flex-direction:column;gap:13px;min-width:0}
 .fila-aviso .que b{font-weight:600}
 .fila-aviso .det{color:var(--tinta-3);font-size:12px}
 .scrollable{max-height:260px;overflow-y:auto}
+/* La lista se recorta a 260px para no comerse la pantalla. Un panel abierto no
+   cabe ahí: queda partido por el borde y el botón de ignorar fuera de vista.
+   Mientras hay uno abierto, la lista se suelta y crece lo que haga falta. */
+.scrollable.desplegada{max-height:none;overflow-y:visible}
+/* La fila que se abre. Es un <button> de verdad y no un div con un clic: así
+   llega el teclado y el lector de pantalla sabe que ahí pasa algo. */
+.fila-aviso.clicable{cursor:pointer;width:100%;text-align:left;background:none;
+  border-left:0;border-right:0;border-top:0;font:inherit;color:inherit}
+.fila-aviso.clicable:hover{background:var(--apagado)}
+.fila-aviso.clicable:focus-visible{outline:2px solid var(--tinta);outline-offset:-2px}
+.fila-aviso .flecha{color:var(--tinta-3);font-size:11px;align-self:center;
+  margin-left:auto;padding-left:8px}
+.fila-aviso.abierta .flecha{transform:rotate(90deg)}
+.panel-conf{border-bottom:1px solid var(--linea-2);background:var(--papel);
+  padding:14px 15px;display:flex;flex-direction:column;gap:11px}
+.panel-conf .intro{font-size:12.5px;color:var(--tinta-2)}
+.panel-conf .ojo{font-size:12px;color:var(--tinta-3);line-height:1.5;max-width:64ch}
+.culpable{display:flex;gap:11px;align-items:center;flex-wrap:wrap;
+  background:var(--tarjeta);border:1px solid var(--linea);border-radius:9px;padding:10px 12px}
+.culpable .quien{flex:1 1 230px;min-width:0}
+.culpable .quien b{font-weight:600;font-size:13px}
+.culpable .cuandito{font-size:12px;color:var(--tinta-3);margin-top:2px}
+.silenciado{display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+  padding:9px 0;border-bottom:1px solid var(--linea-2)}
+.silenciado:last-child{border-bottom:0}
+.silenciado .quien{flex:1 1 220px;min-width:0;font-size:12.5px;color:var(--tinta)}
+.silenciado .quien span{display:block;color:var(--tinta-3);font-size:11.5px;margin-top:2px}
 
 details.plegable{border-top:1px solid var(--linea);padding-top:11px}
 details.plegable>summary{cursor:pointer;font-size:13px;color:var(--tinta-2);list-style:none;
@@ -354,11 +381,59 @@ table.pares tr:last-child td{border-bottom:0}
   <div class="tarjeta">
     {% if conflicts %}
     <div class="scrollable">
+      {# Una fila que no sabe a quién culpar no se abre: sin identidad, el panel
+         no tendría nada que ofrecer. #}
       {% for c in conflicts %}
+      {% if c.culpables %}
+      <button type="button" class="fila-aviso clicable" data-conf="{{ loop.index }}">
+        <span class="cuando">{{ c.dia }} · {{ c.hora }}</span>
+        <span class="que"><b>{{ c.titulo }}</b><br><span class="det">{{ c.detalle }}</span></span>
+        <span class="flecha">▸</span>
+      </button>
+      <div class="panel-conf" id="pc-{{ loop.index }}" hidden>
+        {% if c.par %}
+        <div class="intro">Two real meetings, in different accounts, at the same time.
+          CalSync never moves meetings that involve other people, so there is nothing for
+          it to fix here.</div>
+        <div class="culpable">
+          <div class="quien"><b>I have seen this</b>
+            <div class="cuandito">Hides this warning. Changes nothing in your calendars.</div></div>
+          <form method="post" action="/overlaps/dismiss">
+            <input type="hidden" name="a_account" value="{{ c.par[0][0] }}">
+            <input type="hidden" name="a_event" value="{{ c.par[0][1] }}">
+            <input type="hidden" name="b_account" value="{{ c.par[1][0] }}">
+            <input type="hidden" name="b_event" value="{{ c.par[1][1] }}">
+            <input type="hidden" name="a_title" value="{{ c.culpables[0].titulo }}">
+            <input type="hidden" name="b_title" value="{{ c.culpables[1].titulo }}">
+            <button class="btn">Dismiss</button>
+          </form>
+        </div>
+        {% else %}
+        <div class="intro">This is what took the window:</div>
+        {% endif %}
+        {% for e in c.culpables %}
+        <div class="culpable">
+          <div class="quien"><b>{{ e.titulo }}</b>
+            <div class="cuandito">{{ e.cuenta }} · {{ e.cuando }}</div></div>
+          <form method="post" action="/events/ignore">
+            <input type="hidden" name="account_id" value="{{ e.cuenta_id }}">
+            <input type="hidden" name="event_id" value="{{ e.evento_id }}">
+            <input type="hidden" name="summary" value="{{ e.titulo }}">
+            <input type="hidden" name="account" value="{{ e.cuenta }}">
+            <button class="btn peligro">Ignore this event</button>
+          </form>
+        </div>
+        {% endfor %}
+        <div class="ojo">Ignoring an event lets CalSync place your blocks on top of it, and
+          removes the busy block it was writing in your other calendars. The event itself stays
+          untouched in Google, and you can undo this under &ldquo;Muted by you&rdquo;.</div>
+      </div>
+      {% else %}
       <div class="fila-aviso">
         <span class="cuando">{{ c.dia }} · {{ c.hora }}</span>
         <span class="que"><b>{{ c.titulo }}</b><br><span class="det">{{ c.detalle }}</span></span>
       </div>
+      {% endif %}
       {% endfor %}
     </div>
     {% else %}
@@ -366,6 +441,43 @@ table.pares tr:last-child td{border-bottom:0}
       protected blocks, and every block found a slot.</div>
     {% endif %}
   </div>
+
+  {# Sin esta lista el feature es una trampa: silencias algo en noviembre y en
+     marzo no tienes forma de saber por qué CalSync te agenda encima. #}
+  {% if ignorados or descartados %}
+  <div class="tarjeta"><div class="cuerpo">
+    <details class="plegable" style="border-top:0;padding-top:0">
+      <summary>Muted by you — {{ ignorados | length + descartados | length }}</summary>
+      <div class="adentro">
+        {% for e in ignorados %}
+        <div class="silenciado">
+          <div class="quien"><b>{{ e.summary }}</b>{% if e.account %} · {{ e.account }}{% endif %}
+            <span>Ignored — does not take your time, and is not mirrored</span></div>
+          <form method="post" action="/events/unignore">
+            <input type="hidden" name="account_id" value="{{ e.account_id }}">
+            <input type="hidden" name="event_id" value="{{ e.event_id }}">
+            <input type="hidden" name="summary" value="{{ e.summary }}">
+            <button class="btn">Stop ignoring</button>
+          </form>
+        </div>
+        {% endfor %}
+        {% for d in descartados %}
+        <div class="silenciado">
+          <div class="quien"><b>{{ d.a_title }}</b> &harr; <b>{{ d.b_title }}</b>
+            <span>Warning dismissed — nothing in your calendars changed</span></div>
+          <form method="post" action="/overlaps/undismiss">
+            <input type="hidden" name="a_account" value="{{ d.a_account }}">
+            <input type="hidden" name="a_event" value="{{ d.a_event }}">
+            <input type="hidden" name="b_account" value="{{ d.b_account }}">
+            <input type="hidden" name="b_event" value="{{ d.b_event }}">
+            <button class="btn">Show again</button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+    </details>
+  </div></div>
+  {% endif %}
 
   <div class="enc">
     <div class="titulo-sec">Your week</div>
@@ -909,6 +1021,27 @@ table.pares tr:last-child td{border-bottom:0}
   });
 
   ir((location.hash || "").replace("#", ""));
+
+  /* ---- abrir un conflicto ----
+     Solo muestra y esconde: quién causa el conflicto ya viene calculado del
+     servidor, con sus identificadores. Uno abierto a la vez, porque la lista
+     tiene su propio scroll y dos paneles abiertos la vuelven ilegible. */
+  document.addEventListener("click", function(e){
+    var fila = e.target.closest ? e.target.closest("[data-conf]") : null;
+    if (!fila) return;
+    var panel = document.getElementById("pc-" + fila.dataset.conf);
+    var abrir = panel.hidden;
+    Array.prototype.forEach.call(document.querySelectorAll(".panel-conf"), function(p){
+      p.hidden = true;
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-conf]"), function(f){
+      f.classList.remove("abierta");
+    });
+    panel.hidden = !abrir;
+    fila.classList.toggle("abierta", abrir);
+    var lista = fila.closest(".scrollable");
+    if (lista) lista.classList.toggle("desplegada", abrir);
+  });
 
   /* ---- editor de un bloque ----
      Dos salidas y solo dos: guardar, o cancelar y confirmar que se pierde lo

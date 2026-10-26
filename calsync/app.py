@@ -164,6 +164,8 @@ def dashboard(request: Request, week: int = 0, meetings: Optional[int] = None):
                 "habits": db.habits(conn),
                 "papelera": settings.get("papelera"),
                 "conflicts": conflictos,
+                "ignorados": db.eventos_ignorados(conn),
+                "descartados": db.choques_descartados(conn),
                 **contexto_semana(conn, week, meetings),
                 # El texto se adapta a cuántos calendarios hay conectados.
                 "n_cal": len(accounts_activas),
@@ -363,6 +365,73 @@ def eliminar_habito(habit_id: int):
     finally:
         conn.close()
     return volver("blocks")
+
+
+@app.post("/events/ignore")
+async def ignorar_evento(request: Request):
+    """Este evento deja de existir para CalSync.
+
+    No llama a `compute_plan` para comprobar nada: solo escribe y vuelve. La
+    página siguiente recalcula sola, y `compute_plan` escribe en la base —
+    usarla para mirar es la forma de corromper el estado sin darse cuenta.
+    """
+    form = await request.form()
+    conn = db.connect()
+    try:
+        db.ignorar_evento(
+            conn,
+            int(form["account_id"]), form["event_id"],
+            form.get("summary") or "(no title)", form.get("account") or "",
+            form.get("start_utc") or None,
+        )
+        db.log(conn, "evento_ignorado",
+               f'{form.get("summary")} · {form.get("account")}', "warn")
+    finally:
+        conn.close()
+    return volver("dashboard")
+
+
+@app.post("/events/unignore")
+async def dejar_de_ignorar(request: Request):
+    form = await request.form()
+    conn = db.connect()
+    try:
+        db.dejar_de_ignorar(conn, int(form["account_id"]), form["event_id"])
+        db.log(conn, "evento_recuperado", form.get("summary") or "")
+    finally:
+        conn.close()
+    return volver("dashboard")
+
+
+@app.post("/overlaps/dismiss")
+async def descartar_choque(request: Request):
+    """«Ya lo vi». Esconde la fila y no toca nada más.
+
+    A diferencia de ignorar, esto no cambia una sola cosa de lo que CalSync
+    escribe en Google: las dos reuniones siguen ocupando su tiempo.
+    """
+    form = await request.form()
+    par = ((int(form["a_account"]), form["a_event"]),
+           (int(form["b_account"]), form["b_event"]))
+    conn = db.connect()
+    try:
+        db.descartar_choque(conn, par, form.get("a_title") or "", form.get("b_title") or "")
+    finally:
+        conn.close()
+    return volver("dashboard")
+
+
+@app.post("/overlaps/undismiss")
+async def recuperar_choque(request: Request):
+    form = await request.form()
+    par = ((int(form["a_account"]), form["a_event"]),
+           (int(form["b_account"]), form["b_event"]))
+    conn = db.connect()
+    try:
+        db.recuperar_choque(conn, par)
+    finally:
+        conn.close()
+    return volver("dashboard")
 
 
 @app.post("/trash/restore")

@@ -123,6 +123,38 @@ CREATE TABLE IF NOT EXISTS habit_blocks (
     PRIMARY KEY (habit_id, day, account_id)
 );
 
+-- Los eventos que decidiste ignorar desde un conflicto del dashboard.
+--
+-- Ignorar hace dos cosas a la vez: el evento deja de quitarte tiempo cuando
+-- CalSync busca hueco para un bloque, y deja de reflejarse como ocupado en tus
+-- otras cuentas. `summary` y `start_utc` se guardan aquí mismo para poder
+-- enseñarte la lista aunque el evento ya no exista en Google.
+CREATE TABLE IF NOT EXISTS ignored_events (
+    account_id INTEGER NOT NULL,
+    event_id   TEXT    NOT NULL,
+    summary    TEXT,
+    account    TEXT,
+    start_utc  TEXT,
+    created_at TEXT    NOT NULL,
+    PRIMARY KEY (account_id, event_id)
+);
+
+-- Los avisos de «estas dos reuniones chocan» que ya viste.
+--
+-- Esto NO toca la sincronización: solo esconde la fila. La pareja se guarda
+-- siempre en el mismo orden (ver `habits.clave_par`), porque si no, cambiar la
+-- hora de una de las dos invierte cuál va primero y el aviso reaparece solo.
+CREATE TABLE IF NOT EXISTS dismissed_overlaps (
+    a_account  INTEGER NOT NULL,
+    a_event    TEXT    NOT NULL,
+    b_account  INTEGER NOT NULL,
+    b_event    TEXT    NOT NULL,
+    a_title    TEXT,
+    b_title    TEXT,
+    created_at TEXT    NOT NULL,
+    PRIMARY KEY (a_account, a_event, b_account, b_event)
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -408,6 +440,90 @@ def all_settings(conn) -> dict:
     for row in conn.execute("SELECT key, value FROM settings"):
         out[row["key"]] = _con_defectos(row["key"], json.loads(row["value"]))
     return out
+
+
+# --- Lo que silenciaste ------------------------------------------------------
+#
+# Dos listas distintas a propósito. Ignorar un evento cambia lo que CalSync
+# hace; descartar un aviso de choque solo cambia lo que te enseña. Meterlas en
+# la misma tabla habría borrado esa diferencia, que es justo la que hay que
+# tener clara antes de pulsar un botón.
+
+def ignorar_evento(conn, account_id, event_id, summary, account, start_utc):
+    conn.execute(
+        "INSERT OR IGNORE INTO ignored_events "
+        "(account_id, event_id, summary, account, start_utc, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (account_id, event_id, summary, account, start_utc, now_iso()),
+    )
+    conn.commit()
+
+
+def dejar_de_ignorar(conn, account_id, event_id):
+    conn.execute("DELETE FROM ignored_events WHERE account_id = ? AND event_id = ?",
+                 (account_id, event_id))
+    conn.commit()
+
+
+def eventos_ignorados(conn):
+    return list(conn.execute("SELECT * FROM ignored_events ORDER BY start_utc, summary"))
+
+
+def descartar_choque(conn, par, a_title, b_title):
+    (a_cuenta, a_evt), (b_cuenta, b_evt) = par
+    conn.execute(
+        "INSERT OR IGNORE INTO dismissed_overlaps "
+        "(a_account, a_event, b_account, b_event, a_title, b_title, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (a_cuenta, a_evt, b_cuenta, b_evt, a_title, b_title, now_iso()),
+    )
+    conn.commit()
+
+
+def recuperar_choque(conn, par):
+    (a_cuenta, a_evt), (b_cuenta, b_evt) = par
+    conn.execute(
+        "DELETE FROM dismissed_overlaps WHERE a_account = ? AND a_event = ? "
+        "AND b_account = ? AND b_event = ?",
+        (a_cuenta, a_evt, b_cuenta, b_evt),
+    )
+    conn.commit()
+
+
+def choques_descartados(conn):
+    return list(conn.execute("SELECT * FROM dismissed_overlaps ORDER BY created_at"))
+
+
+def limpiar_silenciados(conn) -> int:
+    """Olvida lo silenciado cuyo evento ya no existe Y cuya fecha ya pasó.
+
+    Las dos condiciones, no una. La base solo guarda una ventana de siete días
+    atrás y treinta adelante, así que «no está en source_events» no significa
+    «no existe»: puede ser que todavía no haya entrado en la ventana. Sin la
+    segunda condición, un evento ignorado a tiempo volvería a estorbar justo
+    cuando se acerca.
+
+    Un evento futuro que alguien borró se queda en la lista hasta que su fecha
+    pase. No molesta a nadie y lo ves en «Muted by you», que es mejor que
+    desaparecer en silencio.
+    """
+    ahora = now_iso()
+    cur = conn.execute(
+        "DELETE FROM ignored_events WHERE start_utc IS NOT NULL AND start_utc < ? "
+        "AND NOT EXISTS (SELECT 1 FROM source_events e "
+        "                WHERE e.account_id = ignored_events.account_id "
+        "                  AND e.event_id = ignored_events.event_id)",
+        (ahora,),
+    )
+    borrados = cur.rowcount
+    cur = conn.execute(
+        "DELETE FROM dismissed_overlaps WHERE NOT EXISTS ("
+        "  SELECT 1 FROM source_events e WHERE e.account_id = dismissed_overlaps.a_account "
+        "    AND e.event_id = dismissed_overlaps.a_event)",
+    )
+    borrados += cur.rowcount
+    conn.commit()
+    return borrados
 
 
 # --- Cuentas -----------------------------------------------------------------

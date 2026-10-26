@@ -193,8 +193,12 @@ def compute_plan(conn):
 
     desired, skipped = {}, []
     for src_id, source_account in accounts.items():
+        # Lo mismo que en `habits`: un evento ignorado no existe para CalSync.
+        # Al desaparecer de `desired`, el bucle de abajo emite el borrado de los
+        # espejos que ya había escrito, sin código nuevo para eso.
         for evt in conn.execute(
-            "SELECT * FROM source_events WHERE account_id = ?", (src_id,)
+            "SELECT * FROM source_events e WHERE account_id = ? " + habits.SIN_IGNORADOS,
+            (src_id,),
         ):
             if evt["event_id"] in propios:
                 continue
@@ -491,6 +495,10 @@ def run_cycle(conn, force_full=False) -> dict:
     if not simulation:
         purge_cancelled(conn)
     db.set_setting(conn, "conflicts", conflictos)
+    # Lo que silenciaste se olvida solo cuando su evento ya no existe y su
+    # fecha pasó. Sin esto la lista crece para siempre y, peor, un ignorado
+    # viejo puede volver a aplicarse si Google reutiliza un id.
+    db.limpiar_silenciados(conn)
 
     summary = {
         "inicio": started,

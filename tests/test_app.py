@@ -384,3 +384,63 @@ def test_la_regla_de_eventos_largos_aparece_en_general(cliente):
     html = cliente.get("/").text
     assert "Events too long to be a meeting" in html
     assert 'name="long_hours"' in html and 'name="skip_long"' in html
+
+
+# --- Ignorar un evento desde el conflicto ------------------------------------
+
+def test_ignorar_y_deshacer_desde_el_dashboard(cliente):
+    conn = db.connect()
+    cuenta = conn.execute("SELECT id FROM accounts").fetchone()["id"]
+    conn.close()
+
+    r = cliente.post("/events/ignore", data={
+        "account_id": str(cuenta), "event_id": "janina",
+        "summary": "Janina OOO", "account": "Ruca",
+    }, follow_redirects=False)
+    assert r.headers["location"].endswith("#dashboard")
+
+    html = cliente.get("/").text
+    assert "Muted by you" in html and "Janina OOO" in html
+    assert "Stop ignoring" in html
+
+    cliente.post("/events/unignore", data={"account_id": str(cuenta), "event_id": "janina"})
+    assert "Muted by you" not in cliente.get("/").text
+
+
+def test_descartar_y_recuperar_un_choque(cliente):
+    datos = {"a_account": "1", "a_event": "uno", "b_account": "2", "b_event": "dos",
+             "a_title": "Scrum", "b_title": "Standup"}
+    r = cliente.post("/overlaps/dismiss", data=datos, follow_redirects=False)
+    assert r.headers["location"].endswith("#dashboard")
+
+    html = cliente.get("/").text
+    assert "Warning dismissed" in html and "Show again" in html
+
+    cliente.post("/overlaps/undismiss", data=datos)
+    assert "Warning dismissed" not in cliente.get("/").text
+
+
+def test_la_lista_de_silenciados_no_aparece_vacia(cliente):
+    """Una sección permanentemente vacía es ruido: solo existe si silenciaste
+    algo."""
+    assert "Muted by you" not in cliente.get("/").text
+
+
+def test_ignorar_no_toca_el_plan_al_guardar(cliente):
+    """La ruta solo escribe y vuelve. `compute_plan` escribe en la base, así
+    que llamarla para mirar es la forma de corromper el estado sin darse
+    cuenta."""
+    conn = db.connect()
+    cuenta = conn.execute("SELECT id FROM accounts").fetchone()["id"]
+    antes = conn.execute("SELECT COUNT(*) c FROM habit_slots").fetchone()["c"]
+    conn.close()
+
+    # Sin seguir el redirect: lo que se mide es la ruta sola. Siguiéndolo se
+    # carga el dashboard, que sí recalcula —y debe hacerlo.
+    cliente.post("/events/ignore", data={
+        "account_id": str(cuenta), "event_id": "x", "summary": "X", "account": "Ruca"},
+        follow_redirects=False)
+
+    conn = db.connect()
+    assert conn.execute("SELECT COUNT(*) c FROM habit_slots").fetchone()["c"] == antes
+    conn.close()
