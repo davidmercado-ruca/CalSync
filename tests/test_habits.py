@@ -11,7 +11,7 @@ from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
 
-from calsync import config, db, habits
+from calsync import config, db, habits, rules
 
 
 @pytest.fixture
@@ -1247,3 +1247,121 @@ def test_la_hora_que_se_muestra_dice_los_minutos_cuando_los_hay(conn, cuentas):
     assert habits.reloj12_exacto(0) == "12am"
     assert habits.reloj12_exacto(12 * 60 + 5) == "12:05pm"
     assert habits.reloj12_exacto(23 * 60 + 45) == "11:45pm"
+
+
+# --- Eventos demasiado largos para ser una reunión ---------------------------
+#
+# El caso que lo originó: "Janina OOO" del 9 de noviembre a las 5:00 al 10 a
+# las 6:00. No es un evento de día completo, así que CalSync lo trataba como
+# una reunión de verdad y dejaba sin sitio a Lunch, Meditation y Exercise.
+
+REGLA = {"skip_long": True, "long_hours": 12}
+
+
+def evento_largo(inicio_local, fin_local, **extra):
+    """Un evento con horas, en la zona horaria de la app."""
+    base = {
+        "is_mirror": 0, "status": "confirmed", "all_day": 0,
+        "transparency": "opaque", "my_response": "accepted",
+        "summary": "Janina OOO",
+        "start_utc": inicio_local.astimezone(timezone.utc).isoformat(),
+        "end_utc": fin_local.astimezone(timezone.utc).isoformat(),
+    }
+    base.update(extra)
+    return base
+
+
+def test_el_ooo_de_veinticinco_horas_deja_de_ocupar_tiempo():
+    lunes = date(2026, 11, 9)
+    evt = evento_largo(habits.local(lunes, time(5, 0)),
+                       habits.local(lunes + timedelta(days=1), time(6, 0)))
+    assert habits.ocupa_tiempo(evt, {}), "sin la regla, sigue ocupando como siempre"
+    assert not habits.ocupa_tiempo(evt, REGLA)
+    assert rules.should_mirror(evt, {**REGLA, "skip_tags": []})[0] is False, (
+        "y tampoco se refleja: las dos puertas usan la misma función"
+    )
+
+
+def test_un_offsite_de_nueve_a_seis_sigue_ocupando():
+    """Doce horas no es un número cualquiera: un día entero de trabajo cabe
+    debajo, y ese sí tiene que bloquear tu tiempo."""
+    lunes = date(2026, 11, 9)
+    evt = evento_largo(habits.local(lunes, time(9, 0)), habits.local(lunes, time(18, 0)))
+    assert habits.ocupa_tiempo(evt, REGLA)
+
+
+def test_terminar_a_medianoche_no_es_cruzar_de_dia():
+    """Un evento de 22:00 a 00:00 lleva la fecha del día siguiente en su final
+    pero no se mete en él. Sin el margen, toda reunión que acaba a las doce
+    saldría marcada como larga."""
+    lunes = date(2026, 11, 9)
+    evt = evento_largo(habits.local(lunes, time(22, 0)),
+                       habits.local(lunes + timedelta(days=1), time(0, 0)))
+    assert habits.ocupa_tiempo(evt, REGLA)
+
+
+def test_un_ooo_largo_del_mismo_dia_tambien_cae():
+    """La segunda condición existe para esto: no cruza la medianoche, pero
+    tampoco es una reunión."""
+    lunes = date(2026, 11, 9)
+    evt = evento_largo(habits.local(lunes, time(7, 0)), habits.local(lunes, time(22, 0)))
+    assert not habits.ocupa_tiempo(evt, REGLA)
+
+
+def test_un_dia_completo_lo_sigue_decidiendo_su_propia_regla():
+    """Un evento de día completo dura 24 horas y cruza la medianoche, así que
+    la regla nueva lo atraparía. No debe: si apagaste «All-day events» es
+    porque quieres que te bloqueen, y esta regla no puede pisar esa decisión."""
+    lunes = date(2026, 11, 9)
+    evt = evento_largo(habits.local(lunes, time(0, 0)),
+                       habits.local(lunes + timedelta(days=1), time(0, 0)), all_day=1)
+    assert not rules.demasiado_largo(evt, REGLA)
+
+
+def test_el_ooo_largo_libera_el_almuerzo(conn, cuentas):
+    """La prueba de verdad: el conflicto que veías en el dashboard desaparece
+    y el bloque encuentra sitio."""
+    lunes = date(2026, 11, 9)
+    conn.execute(
+        "INSERT INTO source_events (account_id, event_id, summary, start_raw, end_raw, "
+        "start_utc, end_utc, all_day, transparency, status, my_response, has_guests, "
+        "is_mirror, updated) VALUES (?, 'janina', 'Janina OOO', '{}', '{}', ?, ?, "
+        "0, 'opaque', 'confirmed', 'accepted', 1, 0, '')",
+        (cuentas["Ruca"],
+         habits.local(lunes, time(5, 0)).astimezone(timezone.utc).isoformat(),
+         habits.local(lunes + timedelta(days=1), time(6, 0)).astimezone(timezone.utc).isoformat()),
+    )
+    conn.commit()
+
+    apagada = dict(db.all_settings(conn)["rules"]); apagada["skip_long"] = False
+    db.set_setting(conn, "rules", apagada)
+    assert habits.ocupado_en(conn, lunes), "con la regla apagada, el día está tomado"
+
+    encendida = dict(apagada); encendida["skip_long"] = True
+    db.set_setting(conn, "rules", encendida)
+    assert habits.ocupado_en(conn, lunes) == [], (
+        "con la regla encendida, el día vuelve a estar libre"
+    )
+
+
+def test_la_franja_dice_el_dia_cuando_el_evento_lo_cambia():
+    """Veinticinco horas no pueden leerse como una. Era lo que escondía al
+    culpable en «Needs your attention»."""
+    lunes = date(2026, 11, 9)
+    corto = habits.franja(habits.local(lunes, time(13, 0)), habits.local(lunes, time(14, 30)))
+    assert corto == "13:00–14:30"
+    largo = habits.franja(habits.local(lunes, time(5, 0)),
+                          habits.local(lunes + timedelta(days=1), time(6, 0)))
+    assert "Nov 10" in largo and largo != "05:00–06:00"
+
+
+def test_una_opcion_nueva_no_nace_apagada(conn):
+    """Los ajustes guardados son un diccionario entero. Sin fusionar con los
+    valores por defecto, cualquier opción añadida después llegaba vacía a quien
+    ya tenía ajustes, y parecía no hacer nada."""
+    db.set_setting(conn, "rules", {"skip_all_day": False})
+    reglas = db.all_settings(conn)["rules"]
+    assert reglas["skip_all_day"] is False, "lo que guardaste manda"
+    assert reglas["skip_long"] is True and reglas["long_hours"] == 12, (
+        "y lo que no guardaste llega con su valor por defecto"
+    )

@@ -351,3 +351,36 @@ def test_el_pie_nombra_el_primer_evento_no_donde_abre_el_scroll(cliente):
     html = " ".join(cliente.get("/week?week=0").text.split())
     assert "Earliest this week is 5am" in html, "nombra el evento"
     assert "Opens at" not in html
+
+
+def test_general_guarda_la_regla_de_eventos_largos(cliente):
+    r = cliente.post("/settings/general", data={
+        "skip_long": "on", "long_hours": "9", "skip_tags": "", "skip_keywords": "",
+    }, follow_redirects=False)
+    assert r.headers["location"].endswith("#general")
+
+    conn = db.connect()
+    reglas = db.all_settings(conn)["rules"]
+    assert reglas["skip_long"] is True and reglas["long_hours"] == 9
+    conn.close()
+
+
+@pytest.mark.parametrize("basura", ["", "doce", "0", "99", "-3"])
+def test_las_horas_invalidas_no_rompen_el_ajuste(cliente, basura):
+    """Un número imposible no puede dejar la regla en un estado que el motor no
+    sepa leer: se queda el que ya estaba guardado."""
+    cliente.post("/settings/general", data={
+        "skip_long": "on", "long_hours": "10", "skip_tags": "", "skip_keywords": "",
+    })
+    cliente.post("/settings/general", data={
+        "skip_long": "on", "long_hours": basura, "skip_tags": "", "skip_keywords": "",
+    })
+    conn = db.connect()
+    assert db.all_settings(conn)["rules"]["long_hours"] == 10
+    conn.close()
+
+
+def test_la_regla_de_eventos_largos_aparece_en_general(cliente):
+    html = cliente.get("/").text
+    assert "Events too long to be a meeting" in html
+    assert 'name="long_hours"' in html and 'name="skip_long"' in html

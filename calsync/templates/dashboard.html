@@ -236,7 +236,8 @@ details.plegable .adentro{padding-top:11px;font-size:12.5px;color:var(--tinta-2)
 .campo.apilado>.izq,.campo.apilado>.der{flex:1 1 auto;width:100%;min-width:0;
   justify-content:flex-start}
 
-input[type=text],select,textarea{font:inherit;font-size:13px;color:var(--tinta);
+input[type=number]{width:66px}
+input[type=text],input[type=number],select,textarea{font:inherit;font-size:13px;color:var(--tinta);
   background:var(--tarjeta);border:1px solid var(--linea);border-radius:7px;padding:6px 9px;
   max-width:100%}
 select:disabled,input:disabled{background:var(--apagado);color:var(--tinta-3)}
@@ -758,6 +759,20 @@ table.pares tr:last-child td{border-bottom:0}
             <div class="ay">A birthday does not stop you having lunch.</div></div>
           <div class="der"><input type="checkbox" name="skip_all_day"
             {{ 'checked' if r.skip_all_day }}></div>
+        </div>
+        {# La única de esta tarjeta que además impide que el evento te quite
+           tiempo cuando CalSync busca hueco para un bloque. Las otras solo
+           deciden si se refleja. #}
+        <div class="campo">
+          <div class="izq"><div class="et">Events too long to be a meeting</div>
+            <div class="ay">An event that crosses midnight, or runs longer than the hours
+              on the right. Somebody else's multi-day "OOO" should not eat your lunch.
+              This one also stops it taking your time, so your blocks can land there.</div></div>
+          <div class="der">
+            <input type="number" name="long_hours" min="1" max="24" aria-label="hours"
+                   value="{{ r.long_hours }}">
+            <span class="ay" style="margin:0">hours</span>
+            <input type="checkbox" name="skip_long" {{ 'checked' if r.skip_long }}></div>
         </div>
         <div class="campo">
           <div class="izq"><div class="et">Invitations I declined</div></div>

@@ -226,8 +226,17 @@ async def ajustes_generales(request: Request):
         db.set_setting(conn, "simulation", form.get("simulation") == "on")
 
         reglas = dict(settings["rules"])
-        for flag in ("skip_transparent", "skip_all_day", "skip_declined", "skip_needs_action"):
+        for flag in ("skip_transparent", "skip_all_day", "skip_declined",
+                     "skip_needs_action", "skip_long"):
             reglas[flag] = form.get(flag) == "on"
+        # Un número de horas vacío, con letras o fuera de rango no puede dejar
+        # el ajuste en un estado que el motor no sepa leer: se vuelve al valor
+        # que ya estaba guardado.
+        try:
+            horas = int(form.get("long_hours") or 0)
+        except ValueError:
+            horas = 0
+        reglas["long_hours"] = horas if 1 <= horas <= 24 else settings["rules"]["long_hours"]
         reglas["skip_tags"] = [
             t.strip() for t in (form.get("skip_tags") or "").split(",") if t.strip()
         ]

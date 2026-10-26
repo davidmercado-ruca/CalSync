@@ -11,7 +11,7 @@ devuelve decisiones, lo que lo hace fácil de probar y de leer.
 from __future__ import annotations
 
 import json
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 
 from . import config, google_cal
 
@@ -105,6 +105,45 @@ def normalize(event: dict) -> dict:
 
 # --- La decisión -------------------------------------------------------------
 
+def demasiado_largo(evt, reglas: dict) -> bool:
+    """¿Este evento es demasiado largo para ser una reunión?
+
+    El caso real: alguien se va de vacaciones, crea «Janina OOO» del lunes a
+    las 5 de la mañana al martes a las 6, y te invita. No es un evento de día
+    completo —que CalSync ya sabe ignorar— sino uno con horas, así que lo
+    trataba como una reunión de verdad y te dejaba sin almuerzo dos días.
+
+    Dos formas del mismo problema, y por eso dos condiciones. Cruzar la
+    medianoche delata al que ocupa varios días. Durar más de N horas atrapa
+    además al que se queda dentro de uno solo, un «OOO» de 7 de la mañana a
+    10 de la noche.
+
+    La llaman LAS DOS puertas, `should_mirror` y `habits.ocupa_tiempo`, y eso
+    es el punto: este bug existe porque «ignorar» estaba escrito dos veces en
+    dos sitios que no se hablaban.
+    """
+    if not reglas.get("skip_long"):
+        return False
+    if evt["all_day"]:
+        return False          # los de día completo tienen su propia regla
+    if not evt["start_utc"] or not evt["end_utc"]:
+        return False
+
+    inicio = datetime.fromisoformat(evt["start_utc"]).astimezone(config.TZ)
+    fin = datetime.fromisoformat(evt["end_utc"]).astimezone(config.TZ)
+    if fin <= inicio:
+        return False
+
+    horas = reglas.get("long_hours") or 0
+    if horas and fin - inicio > timedelta(hours=horas):
+        return True
+
+    # Terminar a medianoche en punto no es cruzar. Un evento de 22:00 a 00:00
+    # lleva la fecha del día siguiente en su final, pero no se mete en él; sin
+    # el microsegundo de margen, toda reunión que acaba a las 12 saldría larga.
+    return (fin - timedelta(microseconds=1)).date() > inicio.date()
+
+
 def should_mirror(evt, rules: dict) -> tuple[bool, str]:
     """¿Este evento debe generar bloqueos en las otras cuentas?
 
@@ -124,6 +163,9 @@ def should_mirror(evt, rules: dict) -> tuple[bool, str]:
 
     if rules.get("skip_all_day") and evt["all_day"]:
         return False, "all-day event"
+
+    if demasiado_largo(evt, rules):
+        return False, "too long to be a meeting"
 
     if rules.get("skip_transparent") and evt["transparency"] == "transparent":
         return False, "marked Free in Google"

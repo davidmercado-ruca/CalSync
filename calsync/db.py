@@ -149,6 +149,12 @@ DEFAULT_SETTINGS = {
         "skip_all_day": True,       # ignorar eventos de día completo
         "skip_declined": True,      # ignorar invitaciones rechazadas
         "skip_needs_action": False, # ignorar invitaciones sin responder
+        # Un evento que cruza la medianoche, o que dura más de `long_hours`,
+        # no es una reunión: casi siempre es el OOO de otra persona creado con
+        # horas en vez de como evento de día completo. Doce horas deja pasar un
+        # offsite de verdad de 9 a 6, que sí debe bloquear tu tiempo.
+        "skip_long": True,
+        "long_hours": 12,
         "skip_tags": ["[nosync]"],  # tags que excluyen un evento
         "skip_keywords": [],        # palabras clave que excluyen un evento
     },
@@ -366,11 +372,26 @@ def cuenta_origen(conn, habito=None):
 
 # --- Configuración -----------------------------------------------------------
 
+def _con_defectos(key, guardado):
+    """Completa un ajuste guardado con las claves que aún no tenía.
+
+    `rules` se guarda como un diccionario entero. Sin esto, una opción añadida
+    después nacía apagada para quien ya tenía ajustes guardados —lo guardado
+    reemplazaba al valor por defecto completo— y la opción parecía no hacer
+    nada hasta que guardabas la pantalla una vez. Esto es la migración: no
+    hace falta tocar la base.
+    """
+    base = DEFAULT_SETTINGS.get(key)
+    if isinstance(base, dict) and isinstance(guardado, dict):
+        return {**base, **guardado}
+    return guardado
+
+
 def get_setting(conn, key, default=None):
     row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
     if row is None:
         return DEFAULT_SETTINGS.get(key, default)
-    return json.loads(row["value"])
+    return _con_defectos(key, json.loads(row["value"]))
 
 
 def set_setting(conn, key, value):
@@ -385,7 +406,7 @@ def set_setting(conn, key, value):
 def all_settings(conn) -> dict:
     out = dict(DEFAULT_SETTINGS)
     for row in conn.execute("SELECT key, value FROM settings"):
-        out[row["key"]] = json.loads(row["value"])
+        out[row["key"]] = _con_defectos(row["key"], json.loads(row["value"]))
     return out
 
 

@@ -27,7 +27,7 @@ import hashlib
 import json
 from datetime import date, datetime, time, timedelta, timezone
 
-from . import config, db, google_cal
+from . import config, db, google_cal, rules
 
 DIAS_CORTOS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -102,12 +102,16 @@ def semana_de(dia: date) -> str:
 
 # --- Qué ocupa tiempo de verdad ----------------------------------------------
 
-def ocupa_tiempo(evt) -> bool:
+def ocupa_tiempo(evt, reglas=None) -> bool:
     """¿Este evento le quita tiempo real a David?
 
     Ojo con la diferencia frente a `rules.should_mirror`: un evento con
     `[nosync]` no genera espejos, pero SÍ ocupa su tiempo. Confundir las dos
     cosas pondría el almuerzo encima de una reunión real.
+
+    `reglas` son los ajustes guardados. Sin ellas solo se aplican las cinco
+    condiciones fijas de aquí abajo; la única que es configurable —la de los
+    eventos demasiado largos— vive en `rules` y la comparten las dos puertas.
     """
     if evt["is_mirror"]:
         return False          # los espejos y los propios bloques no cuentan dos veces
@@ -121,16 +125,30 @@ def ocupa_tiempo(evt) -> bool:
         return False          # marcado "Disponible" en Google
     if evt["my_response"] == "declined":
         return False
+    if rules.demasiado_largo(evt, reglas or {}):
+        return False
     return True
 
 
-def eventos_reales(conn, dia: date):
+def reglas_de(conn, reglas=None) -> dict:
+    """Los ajustes de qué cuenta como tiempo ocupado.
+
+    Quien recorre muchos días los lee una vez y los va pasando; quien llama
+    suelto puede no pasar nada y se leen aquí. Así ningún sitio se queda sin
+    ellos por olvido, que es justo como nacen los bugs de «la opción no hace
+    nada».
+    """
+    return db.all_settings(conn)["rules"] if reglas is None else reglas
+
+
+def eventos_reales(conn, dia: date, reglas=None):
     """Las reuniones de verdad de ese día, con nombre y cuenta.
 
     `ocupado_en` devuelve intervalos unidos, que sirven para colocar bloques
     pero no para explicar un conflicto: «algo choca a la 1» es inútil frente a
     «el Comité de producto de Ruca choca a la 1».
     """
+    reglas = reglas_de(conn, reglas)
     desde, hasta = local(dia, time.min), local(dia, time.min) + timedelta(days=1)
     filas = conn.execute(
         "SELECT e.*, a.label FROM source_events e JOIN accounts a ON a.id = e.account_id "
@@ -139,7 +157,7 @@ def eventos_reales(conn, dia: date):
     )
     out = []
     for evt in filas:
-        if not ocupa_tiempo(evt):
+        if not ocupa_tiempo(evt, reglas):
             continue
         out.append({
             "titulo": evt["summary"] or "(no title)",
@@ -151,7 +169,16 @@ def eventos_reales(conn, dia: date):
 
 
 def franja(inicio: datetime, fin: datetime) -> str:
-    return f"{inicio:%H:%M}–{fin:%H:%M}"
+    """La franja en hora local, diciendo el día cuando el evento lo cambia.
+
+    Sin esto, un evento que va de las 5 de la mañana del lunes a las 6 de la
+    del martes se imprimía «05:00–06:00» y se leía como el más corto del día.
+    Era literalmente lo que escondía al culpable: el bloqueo más grande de la
+    semana parecía durar una hora.
+    """
+    if inicio.date() == fin.date():
+        return f"{inicio:%H:%M}–{fin:%H:%M}"
+    return f"{inicio:%H:%M} → {fin:%b} {fin.day}, {fin:%H:%M}"
 
 
 def se_pisan(a, b) -> bool:
@@ -166,8 +193,9 @@ def dobles_agendas(conn):
     puede es no dejar que te enteres el mismo día a las 9 de la mañana.
     """
     encontrados = []
+    reglas = reglas_de(conn)
     for dia in dias_del_horizonte():
-        eventos = eventos_reales(conn, dia)
+        eventos = eventos_reales(conn, dia, reglas)
         for i, uno in enumerate(eventos):
             for otro in eventos[i + 1:]:
                 if uno["cuenta"] == otro["cuenta"]:
@@ -185,12 +213,13 @@ def dobles_agendas(conn):
     return encontrados
 
 
-def ocupado_en(conn, dia: date):
+def ocupado_en(conn, dia: date, reglas=None):
     """Las franjas ocupadas de ese día, en hora local, unidas y ordenadas.
 
     Mira las tres cuentas a la vez: es justo lo que ningún calendario de Google
     puede hacer por sí solo.
     """
+    reglas = reglas_de(conn, reglas)
     desde, hasta = local(dia, time.min), local(dia, time.min) + timedelta(days=1)
     filas = conn.execute(
         "SELECT * FROM source_events WHERE end_utc > ? AND start_utc < ?",
@@ -198,7 +227,7 @@ def ocupado_en(conn, dia: date):
     )
     franjas = []
     for evt in filas:
-        if not ocupa_tiempo(evt):
+        if not ocupa_tiempo(evt, reglas):
             continue
         inicio = datetime.fromisoformat(evt["start_utc"]).astimezone(config.TZ)
         fin = datetime.fromisoformat(evt["end_utc"]).astimezone(config.TZ)
@@ -457,6 +486,7 @@ def decidir_slots(conn):
     cada ciclo de tres minutos. Y si ya pasó, no se toca nunca más.
     """
     adoptar_cambios_manuales(conn)
+    reglas = reglas_de(conn)
     habitos = db.habits(conn, only_enabled=True)
     saltar = {(r["habit_id"], r["day"]) for r in conn.execute("SELECT * FROM habit_skips")}
     previos = {
@@ -512,7 +542,7 @@ def decidir_slots(conn):
             clave_dia = dia.isoformat()
             if (habito["id"], clave_dia) in saltar:
                 continue          # lo borraste a mano ese día; se respeta
-            ocupado = unir(ocupado_en(conn, dia) + reservado_por_dia.get(dia, []))
+            ocupado = unir(ocupado_en(conn, dia, reglas) + reservado_por_dia.get(dia, []))
 
             anterior = previos.get((habito["id"], clave_dia))
             inicio = minutos = None
@@ -537,7 +567,7 @@ def decidir_slots(conn):
             if inicio is None:
                 estorban = [
                     f'"{e["titulo"]}" ({e["cuenta"]}, {franja(e["inicio"], e["fin"])})'
-                    for e in eventos_reales(conn, dia)
+                    for e in eventos_reales(conn, dia, reglas)
                     if e["inicio"] < local(dia, hhmm(habito["window_end"]))
                     and e["fin"] > local(dia, hhmm(habito["window_start"]))
                 ]
@@ -576,7 +606,7 @@ def decidir_slots(conn):
                 # Un bloque fijo que quedó encima de una reunión real es
                 # información útil, no un error: se avisa y se deja.
                 fin_bloque = inicio + timedelta(minutes=minutos)
-                for evt in eventos_reales(conn, dia):
+                for evt in eventos_reales(conn, dia, reglas):
                     if evt["inicio"] >= fin_bloque or evt["fin"] <= inicio:
                         continue
                     conflictos.append({
@@ -797,8 +827,13 @@ def _minutos_del_dia(momento: datetime, dia: date) -> int:
     return max(0, min(24 * 60, int(delta.total_seconds() // 60)))
 
 
-def piezas_del_dia(conn, dia: date, con_reuniones: bool = True):
-    """Todo lo que ocupa espacio en la columna de ese día."""
+def piezas_del_dia(conn, dia: date, con_reuniones: bool = True, reglas=None):
+    """Todo lo que ocupa espacio en la columna de ese día.
+
+    Dibuja lo mismo que el motor tiene en cuenta: si un evento dejó de ocupar
+    tu tiempo, tampoco pinta una barra en tu semana. Lo contrario sería ver un
+    bloque de 25 horas sobre un hueco donde CalSync acaba de poner el almuerzo.
+    """
     piezas = []
     for fila in conn.execute(
         "SELECT s.start_local, s.minutes, h.name, h.color_id "
@@ -816,7 +851,7 @@ def piezas_del_dia(conn, dia: date, con_reuniones: bool = True):
             "tipo": "bloque",
         })
     if con_reuniones:
-        for evt in eventos_reales(conn, dia):
+        for evt in eventos_reales(conn, dia, reglas):
             piezas.append({
                 "ini": _minutos_del_dia(evt["inicio"], dia),
                 "fin": _minutos_del_dia(evt["fin"], dia),
@@ -844,12 +879,13 @@ def vista_semana(conn, offset: int = 0, con_reuniones: bool = True):
     tiene de verdad, con media hora de aire, sin recortar nada.
     """
     hoy_ = hoy()
+    reglas = reglas_de(conn)
     lunes = hoy_ - timedelta(days=hoy_.weekday()) + timedelta(weeks=offset)
     dias = [lunes + timedelta(days=n) for n in range(7)]
 
     columnas, mas_temprano, mas_tarde = [], None, None
     for dia in dias:
-        piezas = carriles(piezas_del_dia(conn, dia, con_reuniones))
+        piezas = carriles(piezas_del_dia(conn, dia, con_reuniones, reglas))
         for pieza in piezas:
             mas_temprano = (pieza["ini"] if mas_temprano is None
                             else min(mas_temprano, pieza["ini"]))
